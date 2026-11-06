@@ -40,7 +40,7 @@ final class TCPStack {
   var onDNSPacket: ((IPv4Packet) -> Void)?
 
   fileprivate var flows: [FlowKey: TCPFlow] = [:]
-  private let queue: DispatchQueue
+  fileprivate let queue: DispatchQueue
   private var sweepTimer: DispatchSourceTimer?
 
   fileprivate static let maxFlows = 512

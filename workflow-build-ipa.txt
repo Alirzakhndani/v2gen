@@ -26,6 +26,13 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Dump NEPacketTunnelProvider SDK signatures
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          IFACE=$(find "$SDK/System/Library/Frameworks/NetworkExtension.framework" -name "*.swiftinterface" | head -1)
+          echo "swiftinterface: $IFACE"
+          grep -n "func startTunnel\|func stopTunnel\|func handleAppMessage" "$IFACE" || echo "no interface found"
+
       - name: Build unsigned + ad-hoc signed IPA
         run: bash build-ipa.sh
 
