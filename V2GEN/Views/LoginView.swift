@@ -29,6 +29,10 @@ struct LoginView: View {
       VStack(spacing: 0) {
         wordmark
         glassCard
+        // VPN-profile failures surface HERE too (fresh installs sit on
+        // Login before any session — v1.2.1's blind spot).
+        ProfileNoteBar()
+          .padding(.top, 16)
         Spacer(minLength: 0)
         footer
       }

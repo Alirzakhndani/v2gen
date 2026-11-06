@@ -81,6 +81,23 @@ enum TunnelController {
     try? await m.loadFromPreferences()
   }
 
+  /// Remove the saved profile entirely, then re-create it from scratch.
+  /// Remove + re-add is the strongest re-prompt path iOS offers: a
+  /// brand-new save presents the "Add VPN Configuration" permission prompt
+  /// again even after an earlier "Don't Allow" (a plain re-save does not
+  /// reliably), and it also clears a half-broken profile state.
+  static func resetProfile() async throws {
+    manager = nil
+    prepared = false
+    let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+    for m in managers
+    where (m.protocolConfiguration as? NETunnelProviderProtocol)?
+      .providerBundleIdentifier == tunnelBundleID {
+      try? await m.removeFromPreferences()
+    }
+    _ = try await prepareManager()
+  }
+
   // MARK: - Start / stop / swap
 
   /// Write the command file (best-effort — see providerConfiguration note

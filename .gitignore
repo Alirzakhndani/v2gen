@@ -1,0 +1,6 @@
+build/
+mock/
+*.ipa
+*.zip
+ship-*.py*
+.DS_Store

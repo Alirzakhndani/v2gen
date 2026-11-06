@@ -25,7 +25,10 @@ struct HomeView: View {
         .padding(.horizontal, 18.5)
         .padding(.top, 19)
       Spacer(minLength: 20)
-      profileNote
+      // VPN-profile failure bar (note + retry/reset) — no connState gate:
+      // the concurrent sub import owns connState/errorNote, and a
+      // profile/permission problem must survive its resets.
+      ProfileNoteBar()
       errorNote
       ConnectSliderView()
         .padding(.horizontal, 23)
@@ -93,28 +96,6 @@ struct HomeView: View {
     .animation(Animation.v2(.v2Reveal, reduceMotion: reduceMotion), value: appeared)
     .onAppear { appeared = true }
     .accessibilityElement(children: .contain)
-  }
-
-  // MARK: - VPN profile note (setup problems — always visible)
-
-  @ViewBuilder
-  private var profileNote: some View {
-    // Rendered whenever present (no connState gate — the concurrent sub
-    // import owns connState/errorNote, and a profile/permission problem
-    // must survive its resets). Same motion rules as errorNote.
-    ZStack {
-      if let note = model.profileNote {
-        Text(note)
-          .font(.system(size: 13.5, weight: .medium))
-          .foregroundStyle(Ink.error)
-          .multilineTextAlignment(.center)
-          .v2InkShadow()
-          .padding(.horizontal, 30)
-          .padding(.bottom, 14)
-          .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 6)))
-      }
-    }
-    .animation(reduceMotion ? .v2Reduced : .easeOut(duration: 0.28), value: model.profileNote)
   }
 
   // MARK: - Error note (Persian-first, floats in the open wallpaper)

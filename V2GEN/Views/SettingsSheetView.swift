@@ -45,6 +45,30 @@ struct SettingsSheetView: View {
 
         quotaSection(client)
 
+        // ── System VPN profile health ───────────────────────────────────
+        Section {
+          Button {
+            Task { await model.retryProfile() }
+          } label: {
+            HStack {
+              Label(
+                "VPN profile",
+                systemImage: model.profileOK
+                  ? "checkmark.shield" : "exclamationmark.shield"
+              )
+              .foregroundStyle(.primary)
+              Spacer()
+              Text(model.profileOK ? "Ready" : "Needs attention")
+                .foregroundStyle(model.profileOK ? Color.secondary : Color.red)
+                .font(.subheadline.weight(.medium))
+            }
+          }
+          .accessibilityHint("Re-checks the system VPN profile")
+          .accessibilityValue(model.profileOK ? "Ready" : "Needs attention")
+        } footer: {
+          Text("Tapping re-checks the system VPN profile. If a permission popup appears, tap Allow; if a red note appears on the main screen, follow its retry/reset buttons. No popup after a previous Allow is normal — the profile already exists in Settings ← VPN.")
+        }
+
         // ── Connection behavior (Stable Connect / Kill Switch) ──────────
         Section {
           Toggle(isOn: Binding(

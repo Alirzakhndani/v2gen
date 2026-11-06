@@ -175,29 +175,57 @@ final class AppModel {
     startPathMonitor()
   }
 
-  /// One prepare at a time: boot() and signIn() both fire this; a save is
-  /// already pending on the permission popup, so a second concurrent call
-  /// would race the first. The busy guard makes them sequential-safe.
+  /// One prepare at a time: boot(), signIn() and scene-active re-checks
+  /// all fire this; a save is already pending on the permission popup, so
+  /// a second concurrent call would race the first. The busy guard makes
+  /// them sequential-safe.
   private var profileBusy = false
 
-  /// Create/refresh the VPN profile; failures land in profileNote (honest,
-  /// actionable Persian, always visible on Home) without blocking anything.
-  private func prepareProfileQuietly() async {
+  /// Profile health for the Settings status row (true after a successful
+  /// prepare, false while a note is up).
+  private(set) var profileOK = false
+
+  /// Shared profile-task runner: one at a time; success clears the note
+  /// and flags health, failure publishes the honest Persian message (raw
+  /// iOS reason clipped along — the ONLY way to tell a denied popup from
+  /// a missing network-extension entitlement).
+  private func runProfileTask(_ work: () async throws -> Void) async {
     guard !profileBusy else { return }
     profileBusy = true
     defer { profileBusy = false }
     do {
-      try await TunnelController.prepare()
+      try await work()
+      profileOK = true
       profileNote = nil
       await TunnelController.applyOnDemandRules(
         stableConnect: stableConnect, killSwitch: killSwitch
       )
     } catch let error as TunnelController.TunnelError {
+      profileOK = false
       profileNote = error.userMessage
     } catch {
+      profileOK = false
       profileNote = TunnelController.TunnelError
         .profileSaveFailed(String(describing: error)).userMessage
     }
+  }
+
+  /// Create/refresh the VPN profile; failures land in profileNote (honest,
+  /// actionable Persian, always visible on Home) without blocking anything.
+  private func prepareProfileQuietly() async {
+    await runProfileTask { try await TunnelController.prepare() }
+  }
+
+  /// User-tapped retry (note bar / Settings row): a fresh save is the
+  /// documented way to get the permission prompt back after a denial.
+  func retryProfile() async {
+    await prepareProfileQuietly()
+  }
+
+  /// User-tapped reset (note bar): remove + re-create the profile — the
+  /// strongest re-prompt path (see TunnelController.resetProfile).
+  func resetProfile() async {
+    await runProfileTask { try await TunnelController.resetProfile() }
   }
 
   // MARK: - Sign-in / out
@@ -940,6 +968,13 @@ final class AppModel {
   /// foreground the heartbeat catches up immediately (the panel lazily
   /// ends stale sessions, so a beat right after resume keeps it live).
   func scenePhaseChanged(_ phase: ScenePhase) {
+    if phase == .active, sessionKey == nil {
+      // Back in the app with no live session — re-check the profile: the
+      // user may have just allowed/removed it in Settings, and a fresh
+      // save is also the path to a re-appeared permission prompt after a
+      // denial. (While a session runs, the profile is obviously fine.)
+      Task { await prepareProfileQuietly() }
+    }
     if phase == .active, sessionKey != nil {
       Task { await sendBeat(.beat) }
     }
