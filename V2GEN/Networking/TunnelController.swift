@@ -215,9 +215,8 @@ enum TunnelController {
       rule.interfaceTypeMatch = .any
       m.onDemandRules = [rule]
       m.isOnDemandEnabled = true
-      // A kill switch that dies with the keychain/lock screen is not a
-      // kill switch — keep the tunnel alive across sleep.
-      m.disconnectOnSleep = false
+      // (Sleep is covered too: the always-connect rule re-establishes the
+      // tunnel on wake — on-demand rules apply across the lock screen.)
     } else {
       m.isOnDemandEnabled = false
       m.onDemandRules = []
