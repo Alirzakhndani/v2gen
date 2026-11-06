@@ -94,7 +94,7 @@ nonisolated enum CFDirect {
 
     // Race the exchange against a deadline (NWConnection has no built-in
     // request timeout); cancelling the task (lost race) kills the socket.
-    try await withThrowingTaskGroup(of: Response.self) { group in
+    return try await withThrowingTaskGroup(of: Response.self) { group in
       group.addTask {
         try await withTaskCancellationHandler {
           try await session.awaitReady()
