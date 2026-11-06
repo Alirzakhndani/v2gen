@@ -191,8 +191,10 @@ final class TunnelProvider: NEPacketTunnelProvider {
   private static func commandFromProfile(
     _ provider: NEPacketTunnelProvider
   ) -> V2GenTunnelCommand? {
-    guard let dict = provider.protocolConfiguration?.providerConfiguration
-      as? [String: Any] else { return nil }
+    // iOS 26 SDK: protocolConfiguration is a NON-optional NEVPNProtocol —
+    // providerConfiguration lives on the NETunnelProviderProtocol subclass.
+    guard let proto = provider.protocolConfiguration as? NETunnelProviderProtocol,
+          let dict = proto.providerConfiguration as? [String: Any] else { return nil }
     return V2GenTunnelCommand.fromProviderConfiguration(dict)
   }
 
