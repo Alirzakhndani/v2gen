@@ -1,0 +1,38 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# V2GEN — free cloud build (no Mac needed!)
+#
+# Push this folder's contents to a GitHub repo, open the Actions tab and
+# press "Run workflow" — a few minutes later V2GEN.ipa appears under
+# Artifacts. Sign it with Sideloadly/AltStore using your (free) Apple ID.
+#
+# Requires iOS 26 SDK ⇒ macOS 26 runner image with Xcode 26.
+# ═══════════════════════════════════════════════════════════════════════════
+name: Build V2GEN IPA
+
+on:
+  workflow_dispatch: {}          # manual "Run workflow" button (Actions tab)
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest Xcode (needs 26 for iOS 26 SDK)
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Build unsigned + ad-hoc signed IPA
+        run: ./build-ipa.sh
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: V2GEN-ipa
+          path: build/V2GEN.ipa
+          if-no-files-found: error
+          retention-days: 30
