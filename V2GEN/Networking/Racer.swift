@@ -66,7 +66,9 @@ nonisolated enum Racer {
       parameters: probeParameters(for: config),
       timeout: limit
     )
-    let ms = Int(start.duration(to: .now).milliseconds)
+    let d = start.duration(to: .now)
+    let ms = Int(d.components.seconds * 1000
+      + d.components.attoseconds / 1_000_000_000_000)
     return ProbeResult(config: config, rttMs: ready ? max(ms, 1) : nil)
   }
 
@@ -128,11 +130,11 @@ extension Racer {
       sec_protocol_options_set_verify_block(
         options,
         { _, _, complete in complete(true) },
-        nil
+        DispatchQueue.global()
       )
       let name = config.sni ?? config.host
       if !name.isEmpty {
-        sec_protocol_options_set_tls_server_name(options, name as CFString)
+        sec_protocol_options_set_tls_server_name(options, name)
       }
       parameters = NWParameters(tls: tls)
     } else {
