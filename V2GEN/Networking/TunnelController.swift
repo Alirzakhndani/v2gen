@@ -51,7 +51,7 @@ enum TunnelController {
 
   /// Hot-swap the active config in a RUNNING tunnel (Darwin notification —
   /// the TUN stays up, live flows drain through their old connections).
-  static func swap(command: V2GenTunnelCommand) {
+  nonisolated static func swap(command: V2GenTunnelCommand) {
     guard V2GenIPCFile.write(command, to: V2GenIPC.commandURL) else { return }
     V2GenDarwin.post(V2GenNotifyReload)
   }
@@ -60,7 +60,7 @@ enum TunnelController {
     manager?.connection.stopVPNTunnel()
   }
 
-  static func readStats() -> V2GenTunnelStats? {
+  nonisolated static func readStats() -> V2GenTunnelStats? {
     V2GenIPCFile.read(V2GenTunnelStats.self, from: V2GenIPC.statsURL)
   }
 

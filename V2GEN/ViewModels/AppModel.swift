@@ -687,7 +687,7 @@ final class AppModel {
   private nonisolated static func physicalInterfaceName(_ path: NWPath) -> String? {
     for interface in path.availableInterfaces {
       switch interface.type {
-      case .wifi, .cellular, .wired:
+      case .wifi, .cellular, .wiredEthernet:
         return interface.name
       default:
         continue
@@ -702,7 +702,7 @@ final class AppModel {
     guard path.status == .satisfied else { return "none" }
     if path.usesInterfaceType(.wifi) { return "wifi" }
     if path.usesInterfaceType(.cellular) { return "cellular" }
-    if path.usesInterfaceType(.wired) { return "wired" }
+    if path.usesInterfaceType(.wiredEthernet) { return "wired" }
     return "other"
   }
 
