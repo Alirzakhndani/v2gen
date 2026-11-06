@@ -71,7 +71,7 @@ final class NWByteStream: ByteStream {
   func read(completion: @escaping (Data?, Error?) -> Void) {
     queue.async { [weak self] in
       guard let self, !self.closed else {
-        completion(nil, self.failed ?? StreamEOFError())
+        completion(nil, self?.failed ?? StreamEOFError())
         return
       }
       guard self.pendingRead == nil else {

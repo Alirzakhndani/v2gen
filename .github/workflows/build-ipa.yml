@@ -26,6 +26,9 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Probe SDK override signatures
+        run: bash probe-sigs.sh
+
       - name: Dump NEPacketTunnelProvider SDK signatures
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
