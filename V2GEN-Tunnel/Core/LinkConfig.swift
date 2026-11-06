@@ -384,7 +384,7 @@ private extension [UInt8] {
   }
 
   init?(hexEncoded s: String) {
-    let chars = Array(s)
+    let chars: [Character] = Array(s)
     guard chars.count % 2 == 0, !chars.isEmpty else { return nil }
     var out: [UInt8] = []
     var i = 0
