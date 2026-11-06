@@ -226,7 +226,7 @@ enum BLAKE3 {
       let contextHasher = Hasher()
       contextHasher.update(Array(context.utf8))
       var contextKey = [UInt8](repeating: 0, count: KEY_LEN)
-      contextHasher.finalize(into: &contextKey)
+      contextHasher.finalize(into: &contextKey, offset: 0, length: KEY_LEN)
       self.init(keyWords: BLAKE3.wordsFromLE(contextKey), flags: DERIVE_KEY_MATERIAL)
     }
 
