@@ -117,8 +117,9 @@ enum V2Crypto {
         out.withUnsafeMutableBufferPointer { outPtr in
           CCCrypt(
             CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionECBMode),
-            inPtr.baseAddress, block.count,
             keyPtr.baseAddress, key.count,
+            nil,
+            inPtr.baseAddress, block.count,
             outPtr.baseAddress, outPtr.count, &moved
           )
         }
