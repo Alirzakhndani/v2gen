@@ -26,6 +26,7 @@ xcodegen generate
 echo "── 2/5  Archive (Release, unsigned)"
 rm -rf build
 mkdir -p build
+set +e
 xcodebuild archive \
   -project V2GEN.xcodeproj \
   -scheme V2GEN \
@@ -35,7 +36,17 @@ xcodebuild archive \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   AD_HOC_CODE_SIGNING_ALLOWED=YES \
-  | tail -20
+  > build/xcodebuild.log 2>&1
+XCB_STATUS=$?
+set -e
+echo "── xcodebuild diagnostics — errors first ──"
+grep "error:" build/xcodebuild.log | sort -u | head -30 || echo "(no error lines)"
+echo "── xcodebuild log tail ──"
+tail -6 build/xcodebuild.log
+if [ "$XCB_STATUS" -ne 0 ]; then
+  echo "xcodebuild archive failed with exit $XCB_STATUS" >&2
+  exit "$XCB_STATUS"
+fi
 
 APP="build/V2GEN.xcarchive/Products/Applications/V2GEN.app"
 if [ ! -d "$APP" ]; then

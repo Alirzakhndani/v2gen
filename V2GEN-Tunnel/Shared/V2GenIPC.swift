@@ -229,7 +229,7 @@ enum V2GenDarwin {
 /// One Darwin-notification subscription. `deinit` removes it.
 final class DarwinObservationToken {
   private static let lock = NSLock()
-  private static var registry: [UnsafeRawPointer: DarwinObservationToken] = [:]
+  nonisolated(unsafe) private static var registry: [UnsafeRawPointer: DarwinObservationToken] = [:]
 
   private let name: String
   private let handler: () -> Void
@@ -237,18 +237,18 @@ final class DarwinObservationToken {
   fileprivate init(name: String, handler: @escaping () -> Void) {
     self.name = name
     self.handler = handler
-    Self.lock.lock()
-    defer { Self.lock.unlock() }
-    Self.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = self
+    DarwinObservationToken.lock.lock()
+    defer { DarwinObservationToken.lock.unlock() }
+    DarwinObservationToken.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = self
     CFNotificationCenterAddObserver(
       CFNotificationCenterGetDarwinNotifyCenter(),
       Unmanaged.passUnretained(self).toOpaque(),
       { _, observer, _, _, _ in
         guard let observer else { return }
         let key = UnsafeRawPointer(observer)
-        Self.lock.lock()
-        let token = Self.registry[key]
-        Self.lock.unlock()
+        DarwinObservationToken.lock.lock()
+        let token = DarwinObservationToken.registry[key]
+        DarwinObservationToken.lock.unlock()
         token?.handler()
       },
       name as CFString,
@@ -258,9 +258,9 @@ final class DarwinObservationToken {
   }
 
   deinit {
-    Self.lock.lock()
-    Self.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = nil
-    Self.lock.unlock()
+    DarwinObservationToken.lock.lock()
+    DarwinObservationToken.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = nil
+    DarwinObservationToken.lock.unlock()
     CFNotificationCenterRemoveObserver(
       CFNotificationCenterGetDarwinNotifyCenter(),
       Unmanaged.passUnretained(self).toOpaque(),

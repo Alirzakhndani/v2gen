@@ -137,7 +137,7 @@ struct LinkConfig {
 
   private static func parseVMess(_ link: String) -> LinkConfig? {
     let b64 = String(link.dropFirst("vmess://".count))
-    guard let json = String(data: Data(base64Flexible: b64), as: UTF8.self),
+    guard let json = String(validating: Data(base64Flexible: b64), as: UTF8.self),
           let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
     else { return nil }
 
@@ -209,7 +209,7 @@ struct LinkConfig {
       hostPort = String(body[body.index(after: at)...])
       if !methodPass.contains(":") {
         // ss://base64(method:pass)@host:port
-        guard let dec = String(data: Data(base64Flexible: methodPass), as: UTF8.self) else {
+        guard let dec = String(validating: Data(base64Flexible: methodPass), as: UTF8.self) else {
           return nil
         }
         methodPass = dec
@@ -218,7 +218,7 @@ struct LinkConfig {
       }
     } else {
       // ss://base64(method:pass@host:port)
-      guard let dec = String(data: Data(base64Flexible: body), as: UTF8.self),
+      guard let dec = String(validating: Data(base64Flexible: body), as: UTF8.self),
             let at = dec.lastIndex(of: "@")
       else { return nil }
       methodPass = String(dec[dec.startIndex..<at])
@@ -299,9 +299,10 @@ private func queryDict(_ comps: URLComponents) -> [String: String] {
   return out
 }
 
-private func firstNonEmpty(_ values: String...) -> String {
-  for v in values where !v.trimmingCharacters(in: .whitespaces).isEmpty {
-    return v.trimmingCharacters(in: .whitespaces)
+private func firstNonEmpty(_ values: String?...) -> String {
+  for case let v? in values {
+    let t = v.trimmingCharacters(in: .whitespaces)
+    if !t.isEmpty { return t }
   }
   return ""
 }
@@ -384,7 +385,7 @@ private extension [UInt8] {
   }
 
   init?(hexEncoded s: String) {
-    let chars = Array(s)
+    let chars: [Character] = s.map { $0 }
     guard chars.count % 2 == 0, !chars.isEmpty else { return nil }
     var out: [UInt8] = []
     var i = 0

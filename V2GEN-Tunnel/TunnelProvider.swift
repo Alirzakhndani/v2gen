@@ -58,7 +58,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
   // MARK: - Start / stop
 
   override func startTunnel(
-    _ options: [String: Any],
+    options: [String : NSObject]?,
     completionHandler: @escaping (Error?) -> Void
   ) {
     // Command transport, in priority order:
@@ -171,7 +171,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
   }
 
   override func stopTunnel(
-    _ reason: NEProviderStopReason,
+    with reason: NEProviderStopReason,
     completionHandler: @escaping () -> Void
   ) {
     reloadObserver = nil
@@ -197,9 +197,11 @@ final class TunnelProvider: NEPacketTunnelProvider {
   }
 
   private static func commandFromOptions(
-    _ options: [String: Any]
+    _ options: [String : NSObject]?
   ) -> V2GenTunnelCommand? {
-    V2GenTunnelCommand.fromProviderConfiguration(options)
+    guard let json = options?["command"] as? String,
+          let data = json.data(using: .utf8) else { return nil }
+    return try? JSONDecoder().decode(V2GenTunnelCommand.self, from: data)
   }
 
   // MARK: - Kill Switch blackhole
@@ -270,7 +272,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
     guard let config = LinkConfig.parse(command.link) else { return }
     currentCommandID = command.id
     engine?.update(config: config, commandID: command.id, tag: command.tag)
-    stack?.noteConfigChanged()
+    stack?.resetAll()
   }
 
   // MARK: - Stats (tunnel → app)
@@ -359,6 +361,6 @@ final class TunnelProvider: NEPacketTunnelProvider {
     // against the app's monotonic ids. Failover rotations reuse the SAME
     // command id; the tag in stats names the live member.
     engine?.update(config: config, commandID: command.id, tag: tag)
-    stack?.noteConfigChanged()
+    stack?.resetAll()
   }
 }
