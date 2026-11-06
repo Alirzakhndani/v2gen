@@ -1,0 +1,82 @@
+# V2GEN — XcodeGen project specification.
+# Generate the Xcode project with:  xcodegen generate
+# (brew install xcodegen, or https://github.com/yonaskolb/XcodeGen)
+#
+# Xcode 26+ / iOS 26.0+ SDK required — the app uses the real Liquid Glass
+# APIs (glassEffect, GlassEffectContainer, glass button styles), which are
+# iOS 26.0+. There is intentionally no pre-26 fallback path.
+#
+# The packet-tunnel extension (V2GEN-Tunnel) builds in Swift 5 language
+# mode — systems code (TCP state machine, codec callbacks) reads best with
+# classic concurrency; the app target stays Swift 6 / MainActor-default.
+
+name: V2GEN
+options:
+  bundleIdPrefix: xyz.v2gen
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    GENERATE_INFOPLIST_FILE: false
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+    SWIFT_STRICT_CONCURRENCY: complete
+    # Write-Swift skill: default actor isolation = MainActor for app modules
+    # (Xcode 26 default for new apps) + Approachable Concurrency.
+    DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: true
+targets:
+  V2GEN:
+    type: application
+    platform: iOS
+    sources:
+      - path: V2GEN
+      - path: V2GEN-Tunnel/Shared    # the app ⇄ tunnel IPC contract
+    dependencies:
+      - target: V2GEN-Tunnel
+        embed: true                  # PlugIns/V2GEN-Tunnel.appex
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.v2gen.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_FILE: V2GEN/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"        # iPhone only (reference design)
+        CODE_SIGN_STYLE: Automatic         # ⌘R with a free personal team just works;
+        CODE_SIGN_ENTITLEMENTS: V2GEN/V2GEN.entitlements
+        # build-ipa.sh overrides signing off on its own command line
+
+  V2GEN-Tunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: V2GEN-Tunnel
+        exclude:
+          - Info.plist
+          - V2GEN-Tunnel.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.v2gen.app.tunnel
+        PRODUCT_MODULE_NAME: V2GENTunnel
+        INFOPLIST_FILE: V2GEN-Tunnel/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"               # classic concurrency for systems code
+        SWIFT_STRICT_CONCURRENCY: minimal
+        DEFAULT_ACTOR_ISOLATION: NonIsolated
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: V2GEN-Tunnel/V2GEN-Tunnel.entitlements
+        SKIP_INSTALL: "YES"
+
+schemes:
+  V2GEN:
+    build:
+      targets:
+        V2GEN: all
+    run:
+      config: Debug
+    archive:
+      config: Release
