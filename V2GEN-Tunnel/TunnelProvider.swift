@@ -47,7 +47,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
   // MARK: - Start / stop
 
   override func startTunnel(
-    with options: [String : NSObject]?,
+    options: [String : NSObject]?,
     completionHandler: @escaping (Error?) -> Void
   ) {
     guard let command = V2GenIPCFile.read(
