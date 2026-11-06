@@ -299,9 +299,10 @@ private func queryDict(_ comps: URLComponents) -> [String: String] {
   return out
 }
 
-private func firstNonEmpty(_ values: String...) -> String {
-  for v in values where !v.trimmingCharacters(in: .whitespaces).isEmpty {
-    return v.trimmingCharacters(in: .whitespaces)
+private func firstNonEmpty(_ values: String?...) -> String {
+  for case let v? in values {
+    let t = v.trimmingCharacters(in: .whitespaces)
+    if !t.isEmpty { return t }
   }
   return ""
 }
