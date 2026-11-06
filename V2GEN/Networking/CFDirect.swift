@@ -15,6 +15,11 @@ import Security
 // needs NO DNS at all and sidesteps both range-blocks and DNS pollution.
 // PanelAPI races this against the plain URL path and keeps the winner.
 //
+// ALT PORTS: Cloudflare proxies HTTPS on 443 + 2053/2083/2087/2096/8443.
+// Iranian ISP blocks are often (IP-range, port) specific — a front on an
+// alternate port walks straight through a 443-only block. All verified
+// live against the worker before shipping.
+//
 // TRANSPORT: NWConnection + system TLS (SNI = the real host, which is
 // also the certificate-verification name). HTTP/1.0 with
 // `Connection: close` keeps the response framing trivial: no chunked
@@ -54,6 +59,10 @@ nonisolated enum CFDirect {
     "103.21.244.10",
   ]
 
+  /// Cloudflare's proxied HTTPS ports (all verified answering the worker).
+  /// 443 first; the alternates dodge (range, port)-specific ISP blocks.
+  static let httpsPorts: [UInt16] = [443, 2053, 2083, 2087, 2096, 8443]
+
   /// A parsed HTTP response — deliberately minimal (status, headers,
   /// body). Header keys lowercased.
   struct Response: Sendable {
@@ -74,9 +83,10 @@ nonisolated enum CFDirect {
     path: String,
     method: String = "GET",
     body: Data? = nil,
+    port: UInt16 = 443,
     timeout: TimeInterval = 12
   ) async throws -> Response {
-    let conn = makeConnection(ip: ip, host: host)
+    let conn = makeConnection(ip: ip, host: host, port: port)
     let session = NWSession(conn: conn)
 
     // Build the wire payload once (HTTP/1.0 — the body ends at EOF, no
@@ -121,7 +131,7 @@ nonisolated enum CFDirect {
 
   // MARK: - Connection
 
-  private static func makeConnection(ip: String, host: String) -> NWConnection {
+  private static func makeConnection(ip: String, host: String, port: UInt16) -> NWConnection {
     let params = NWParameters.tls
     // SNI = the real host: the edge routes the zone by it, and the
     // system verifier validates the certificate against it.
@@ -133,7 +143,7 @@ nonisolated enum CFDirect {
     }
     return NWConnection(
       host: NWEndpoint.Host(ip),
-      port: 443,
+      port: NWEndpoint.Port(rawValue: port) ?? 443,
       using: params
     )
   }

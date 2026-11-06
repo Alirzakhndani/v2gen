@@ -48,6 +48,10 @@ final class AppModel {
   /// connState and errorNote) can never erase it — a profile problem must
   /// stay on screen until the next successful prepare or connect.
   var profileNote: String?
+  /// Transient message for the LOGIN form — set when a stored session is
+  /// dropped (dead token / inactive subscription) so the bounce back to
+  /// the form is EXPLAINED instead of reading as "login is broken".
+  var loginNote: String?
   var settingsOpen = false
   var bytes = (up: 0, down: 0)
 
@@ -232,6 +236,7 @@ final class AppModel {
 
   @discardableResult
   func signIn(username: String, password: String) async -> String? {
+    loginNote = nil
     let user = ByteFormat.normalizePersianInput(username.trimmingCharacters(in: .whitespaces))
     guard !user.isEmpty, !password.isEmpty else { return nil }
     do {
@@ -245,11 +250,22 @@ final class AppModel {
       Task { await prepareProfileQuietly() }
       return nil
     } catch let PanelError.panel(message) {
+      // The panel answers "wrong username or password" for inactive or
+      // EXPIRED subscriptions too — a user typing the RIGHT password
+      // otherwise reads this as "login is broken". The hint points at
+      // the account state instead.
+      if message.contains("نام کاربری") || message.contains("رمز") {
+        return message + " — اگر رمز درست است، اشتراک شما منقضی یا غیرفعال شده است"
+      }
       return message
+    } catch let PanelError.networkReport(report) {
+      // The raced fronts all failed — the compact per-front report rides
+      // along: a screenshot of this line says exactly what the ISP blocks.
+      return "اتصال به سرور برقرار نشد (\(report)) — اینترنت را عوض کنید "
+        + "(Wi-Fi ⇄ دیتا) یا با فیلترشکن دوباره امتحان کنید"
     } catch {
-      // The raced fronts all failed to reach the worker — usually the
-      // ISP is blocking every Cloudflare route at once (rare: the race
-      // covers DNS + several edge IPs). Actionable Persian.
+      // No fronts were raced (transport setup failed outright) — usually
+      // the device has no usable route at all. Actionable Persian.
       return "اتصال به سرور برقرار نشد — اینترنت را عوض کنید (Wi-Fi ⇄ دیتا) و دوباره امتحان کنید"
     }
   }
@@ -311,7 +327,9 @@ final class AppModel {
         await die("اشتراک شما فعال نیست")
       } else {
         // Stored auth is dead — back to the login form; the next sign-in
-        // re-enters through the worker.
+        // re-enters through the worker. EXPLAIN the bounce (loginNote)
+        // — an unexplained return to the form reads as "login is broken".
+        loginNote = "ورود ذخیره‌شده باطل شد — اشتراک شما فعال نیست یا منقضی شده است"
         signOut()
       }
     } catch let PanelError.panel(message) {
@@ -319,10 +337,16 @@ final class AppModel {
         errorNote = message
         connState = .error
       }
+    } catch let PanelError.networkReport(report) {
+      if !silent {
+        // All raced fronts failed (DNS + CF edges) — the ISP is blocking
+        // every Cloudflare route at once. The report says which.
+        errorNote = "کانفیگ‌ها دریافت نشد (\(report)) — اینترنت را عوض کنید (Wi-Fi ⇄ دیتا) و دوباره امتحان کنید"
+        connState = .error
+      }
     } catch {
       if !silent {
-        // All raced fronts failed (DNS + CF edge IPs) — the ISP is
-        // blocking every Cloudflare route at once. Actionable Persian.
+        // No fronts were raced at all — the device has no usable route.
         errorNote = "کانفیگ‌ها دریافت نشد — اینترنت را عوض کنید (Wi-Fi ⇄ دیتا) و دوباره امتحان کنید"
         connState = .error
       }
@@ -348,6 +372,7 @@ final class AppModel {
       let fresh = try await api.subscription(token: client0.subToken)
       configs = fresh.configs
     } catch PanelError.inactive {
+      loginNote = "ورود ذخیره‌شده باطل شد — اشتراک شما فعال نیست یا منقضی شده است"
       signOut()   // stored token is dead — back to the login form
       return
     } catch {

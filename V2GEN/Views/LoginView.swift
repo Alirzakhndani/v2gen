@@ -87,7 +87,7 @@ struct LoginView: View {
       fields
         .padding(.top, 20)
 
-      if notice != nil || error != nil {
+      if notice != nil || error != nil || model.loginNote != nil {
         noticeAndError
           .padding(.top, 14)
       }
@@ -163,6 +163,11 @@ struct LoginView: View {
 
   private var noticeAndError: some View {
     VStack(spacing: 5) {
+      if let note = model.loginNote {
+        Text(note)
+          .font(.system(size: 13))
+          .foregroundStyle(Ink.error)
+      }
       if let notice {
         Text(notice)
           .font(.system(size: 12))
@@ -178,7 +183,7 @@ struct LoginView: View {
     .frame(maxWidth: .infinity)
     .environment(\.layoutDirection, .rightToLeft)
     .accessibilityElement(children: .combine)
-    .accessibilityLabel([notice, error].compactMap { $0 }.joined(separator: ". "))
+    .accessibilityLabel([model.loginNote, notice, error].compactMap { $0 }.joined(separator: ". "))
   }
 
   // MARK: - Submit
@@ -214,6 +219,7 @@ struct LoginView: View {
     busy = true
     error = nil
     notice = nil
+    model.loginNote = nil
     // Persian keyboard contamination — deterministic char-map fix, applied
     // to the username only (visible in the field; passwords never touched).
     let user = ByteFormat.normalizePersianInput(username.trimmingCharacters(in: .whitespaces))

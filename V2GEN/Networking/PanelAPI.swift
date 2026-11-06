@@ -29,6 +29,10 @@ enum PanelError: Error {
   case inactive
   /// Transport-level failure reaching the worker.
   case network
+  /// Transport failure WITH the per-front diagnostic (which IP:port and
+  /// DNS path were tried and how each failed) — the compact report makes
+  /// a user screenshot decisive for support.
+  case networkReport(String)
 }
 
 /// Which leg of the flow a session request rides.
@@ -240,42 +244,64 @@ struct PanelAPI: Sendable {
 
   // MARK: - Worker-front racing (Iranian anti-block)
 
-  /// The CF edge IP that won the last race rides FIRST on the next
-  /// request — sticky winner, so a working front keeps working.
-  private static var stickyCFIP: String?
+  /// The CF edge (IP, port) that won the last race rides FIRST on the
+  /// next request — sticky winner, so a working front keeps working.
+  private static var stickyFront: (ip: String, port: UInt16)?
 
   private enum Front: Sendable {
     case url
-    case cfIP(String)
+    case cfIP(String, UInt16)
+
+    /// Compact label for the failure report (screenshot-readable).
+    var label: String {
+      switch self {
+      case .url: return "DNS"
+      case .cfIP(let ip, let port): return port == 443 ? ip : "\(ip):\(port)"
+      }
+    }
   }
 
   private struct FrontOutcome: Sendable {
     let front: Front
-    /// nil = this front failed to reach the worker at all (the failure
-    /// reason is irrelevant — what matters is any-front-reached).
+    /// nil = this front failed to reach the worker at all; `failure` then
+    /// carries the one-word reason for the diagnostic report.
     let response: PanelResponse?
+    let failure: String?
   }
 
-  /// Fronts for this request: the DNS path always; the sticky CF winner
-  /// and one rotating pool IP race alongside.
+  /// Fronts for this request: the DNS path always; the sticky CF winner,
+  /// two/three rotating pool IPs, and one ALTERNATE-PORT front (CF proxies
+  /// 2053/2083/2087/2096/8443 — ISP blocks are often port-specific)
+  /// race alongside.
   private func pickFronts() -> [Front] {
     var fronts: [Front] = [.url]
     var candidates = CFDirect.pool
-    if let sticky = PanelAPI.stickyCFIP {
-      fronts.append(.cfIP(sticky))
-      candidates.removeAll { $0 == sticky }
+    let hasSticky = PanelAPI.stickyFront != nil
+    if let sticky = PanelAPI.stickyFront {
+      fronts.append(.cfIP(sticky.ip, sticky.port))
+      candidates.removeAll { $0 == sticky.ip }
     }
-    if let rotating = candidates.randomElement() {
-      fronts.append(.cfIP(rotating))
+    let racers = candidates.shuffled().prefix(hasSticky ? 2 : 3)
+    for ip in racers {
+      fronts.append(.cfIP(ip, 443))
+    }
+    // One alternate-port front on a pool IP not already racing on 443.
+    if let alt = CFDirect.httpsPorts.dropFirst().randomElement(),
+       let ip = candidates.first(where: { ip in
+         !fronts.contains { if case .cfIP(let fip, _) = $0 { return fip == ip } ; return false }
+       }) {
+      fronts.append(.cfIP(ip, alt))
     }
     return fronts
   }
 
   /// ENTRY-phase requests (login / sub / worker-fallback session logs)
   /// ride EVERY front at once — the DNS path plus IP-pinned Cloudflare
-  /// edges that need no DNS at all. The first HTTP response wins (any
-  /// status proves the front reaches the worker); every front failing is
-  /// the only failure. Iranian ISPs block CF subnets non-uniformally —
+  /// edges (443 + an alternate port) that need no DNS at all. The first
+  /// HTTP response wins (any status proves the front reaches the worker);
+  /// every front failing is the only failure — and then the per-front
+  /// report rides the error so a screenshot tells support exactly what
+  /// the ISP is blocking. Iranian ISPs block CF subnets non-uniformally —
   /// see CFDirect.
   private func workerRequest(
     _ path: String, method: String, body: Data?
@@ -286,6 +312,7 @@ struct PanelAPI: Sendable {
       for front in fronts {
         group.addTask {
           let res: PanelResponse?
+          var failure: String?
           do {
             switch front {
             case .url:
@@ -293,9 +320,10 @@ struct PanelAPI: Sendable {
                 self.baseURL.appending(path: path), method: method,
                 body: body, session: self.session
               )
-            case .cfIP(let ip):
+            case .cfIP(let ip, let port):
               let raw = try await CFDirect.request(
-                ip: ip, host: host, path: path, method: method, body: body
+                ip: ip, host: host, path: path, method: method, body: body,
+                port: port
               )
               res = PanelResponse(
                 status: raw.status, body: raw.body, headers: raw.headers
@@ -303,23 +331,36 @@ struct PanelAPI: Sendable {
             }
           } catch {
             res = nil
+            failure = Self.shortReason(error)
           }
-          return FrontOutcome(front: front, response: res)
+          return FrontOutcome(front: front, response: res, failure: failure)
         }
       }
       // Children NEVER throw (a failure rides as a nil response) — the
       // loop below only needs the first success.
+      var report: [String] = []
       for try await outcome in group {
         if let res = outcome.response {
-          if case .cfIP(let ip) = outcome.front {
-            PanelAPI.stickyCFIP = ip
+          if case .cfIP(let ip, let port) = outcome.front {
+            PanelAPI.stickyFront = (ip, port)
           }
           group.cancelAll()
           return res
         }
+        report.append("\(outcome.front.label):\(outcome.failure ?? "✗")")
       }
-      throw PanelError.network
+      throw PanelError.networkReport(report.joined(separator: " · "))
     }
+  }
+
+  /// One compact word per failure class — the report must stay readable
+  /// inside a login error message.
+  private static func shortReason(_ error: Error) -> String {
+    if error is PanelError { return "پاسخ نامعتبر" }
+    let ns = error as NSError
+    if ns.domain == NSURLErrorDomain { return "شبکه" }
+    if ns.domain == NSPOSIXErrorDomain { return "قطع" }
+    return "خطا"
   }
 
   /// Plain URLSession transport — used directly by the direct (VPS)

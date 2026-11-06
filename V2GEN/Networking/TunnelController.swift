@@ -19,6 +19,12 @@ enum TunnelController {
     case ipcUnavailable
     case notEnabled
     case profileSaveFailed(String)
+    /// NEVPN 5 with the permission popup shown and dismissed without Allow
+    /// (Don't Allow / passcode canceled) — iOS then caches the denial.
+    case popupDenied
+    /// The install carries no network-extension entitlement (side-loader
+    /// stripped it) — the popup can NEVER appear; reinstall with it kept.
+    case notEntitled
 
     var description: String {
       switch self {
@@ -28,6 +34,10 @@ enum TunnelController {
         return "The VPN profile is not enabled in Settings"
       case .profileSaveFailed(let reason):
         return "VPN profile could not be saved — \(reason)"
+      case .popupDenied:
+        return "VPN permission popup was denied"
+      case .notEntitled:
+        return "App is signed without the network-extension entitlement"
       }
     }
 
@@ -46,6 +56,14 @@ enum TunnelController {
         let clipped = reason.count > 110 ? String(reason.prefix(110)) + "…" : reason
         return "پروفایل VPN ذخیره نشد — پاپ‌آپ «Add VPN Configuration» را Allow کنید. "
           + "اگر پاپ‌آپ نیامد، اپ با دسترسی VPN امضا نشده است. (\(clipped))"
+      case .popupDenied:
+        return "اجازهٔ ساخت VPN رد شده است — اپ را کامل ببندید (App Switcher) و دوباره باز کنید؛ "
+          + "این بار پاپ‌آپ «Add VPN Configuration» را Allow و رمز گوشی را بزنید. "
+          + "اگر پاپ‌آپ دوباره نیامد: «بازنشانی پروفایل» را بزنید و در صورت نیاز موقتاً پاس‌کد گوشی را خاموش کنید"
+      case .notEntitled:
+        return "این نصب اپ، دسترسی VPN ندارد (بدون entitlement امضا شده) — اپ را کامل پاک کنید؛ "
+          + "در Sideloadly بخش Advanced گزینه‌های «Keep entitlements» و «App Groups» را روشن کنید "
+          + "و دوباره نصب کنید؛ هنگام اولین باز شدن اپ، پاپ‌آپ Allow را حتماً تأیید کنید"
       }
     }
   }
@@ -89,13 +107,7 @@ enum TunnelController {
   static func resetProfile() async throws {
     manager = nil
     prepared = false
-    let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-    for m in managers
-    where (m.protocolConfiguration as? NETunnelProviderProtocol)?
-      .providerBundleIdentifier == tunnelBundleID {
-      try? await m.removeFromPreferences()
-    }
-    _ = try await prepareManager()
+    _ = try await rebuildFromScratch(command: nil)
   }
 
   // MARK: - Start / stop / swap
@@ -173,19 +185,66 @@ enum TunnelController {
   private static func prepareManager(
     command: V2GenTunnelCommand? = nil
   ) async throws -> NETunnelProviderManager {
-    var m: NETunnelProviderManager
+    let m = try await loadOrReuseManager()
+    let wasReused = m.localizedDescription != nil   // loaded from Preferences
+    configure(m, command: command)
+
+    // Idempotent prepare: a profile that already exists, is enabled and
+    // carries a configuration needs NO save — every redundant save is
+    // another chance to trip iOS's cached-denial (NEVPN 5) or surprise the
+    // user with a permission popup at a random moment. Only create/change
+    // paths touch saveToPreferences.
+    if command == nil, m.isEnabled, profileLooksReady(m) {
+      manager = m
+      prepared = true
+      return m
+    }
+
+    do {
+      try await saveClassified(m)
+    } catch {
+      // Self-heal (one shot): a save on a REUSED profile failing is the
+      // classic orphan — a leftover profile from a PREVIOUS install whose
+      // signing no longer matches this one. Remove + a brand-new manager
+      // re-presents the permission popup and clears the broken state.
+      // (Never while connected — that would kill a live session for nothing.
+      // When the heal ALSO fails, its fresh-manager verdict is the honest
+      // error to surface.)
+      if wasReused, m.connection.status != .connected {
+        return try await rebuildFromScratch(command: command)
+      }
+      throw error
+    }
+    // Apple quirk: re-load after the save, or the tunnel may fail to
+    // start with "no protocol found".
+    try await m.loadFromPreferences()
+
+    manager = m
+    prepared = true
+    return m
+  }
+
+  /// Load the saved profile (reusing the cached instance when prepared) or
+  /// start a brand-new manager. `nil` localizedDescription marks a fresh one.
+  private static func loadOrReuseManager() async throws -> NETunnelProviderManager {
     if prepared, let manager {
       // Re-load so a profile removed in Settings is detected honestly.
       try await manager.loadFromPreferences()
-      m = manager
-    } else {
-      let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-      m = managers.first {
-        ($0.protocolConfiguration as? NETunnelProviderProtocol)?
-          .providerBundleIdentifier == tunnelBundleID
-      } ?? NETunnelProviderManager()
+      return manager
     }
+    let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+    if let existing = managers.first({
+      ($0.protocolConfiguration as? NETunnelProviderProtocol)?
+        .providerBundleIdentifier == tunnelBundleID
+    }) {
+      return existing
+    }
+    return NETunnelProviderManager()
+  }
 
+  private static func configure(
+    _ m: NETunnelProviderManager, command: V2GenTunnelCommand?
+  ) {
     m.localizedDescription = "V2GEN"
     let proto = (m.protocolConfiguration as? NETunnelProviderProtocol)
       ?? NETunnelProviderProtocol()
@@ -203,21 +262,75 @@ enum TunnelController {
     if !m.isEnabled {
       m.isEnabled = true
     }
+  }
 
+  /// Does the loaded profile already carry everything a cold start needs?
+  private static func profileLooksReady(_ m: NETunnelProviderManager) -> Bool {
+    guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol else {
+      return false
+    }
+    return proto.providerBundleIdentifier == tunnelBundleID
+      && proto.providerConfiguration != nil
+  }
+
+  /// saveToPreferences with honest failure classification (NEVPN code 5):
+  ///   · entitlement missing from the embedded provisioning profile → the
+  ///     popup can never come — a reinstall is the ONLY fix (Sideloadly:
+  ///     Keep entitlements + App Groups).
+  ///   · otherwise the popup WAS shown (or a previous denial is cached) →
+  ///     restart the app / reset the profile; no reinstall needed.
+  /// Timing is the tie-breaker when no profile is embedded (App Store
+  /// builds): an instant code-5 means no popup was ever attempted.
+  private static func saveClassified(_ m: NETunnelProviderManager) async throws {
+    let t0 = Date()
     do {
       try await m.saveToPreferences()
     } catch {
-      // Entitlement/stripped-signing failures land here — surface them as
-      // their own error instead of a misleading "permission not granted".
-      throw TunnelError.profileSaveFailed(String(describing: error))
+      let raw = String(describing: error)
+      let elapsed = Date().timeIntervalSince(t0)
+      let isPermissionDenied = raw.contains("Code=5")
+        || raw.contains("permission denied")
+        || (error as? NSError)?.code == 5
+      guard isPermissionDenied else {
+        // Entitlement/stripped-signing failures land here — surface them
+        // as their own error instead of a misleading "permission denied".
+        throw TunnelError.profileSaveFailed(raw)
+      }
+      switch SigningDiagnostics.networkExtensionGranted {
+      case .some(false):
+        throw TunnelError.notEntitled
+      case .some(true):
+        // Entitlement IS in the profile → the popup was shown and answered
+        // with Don't Allow (or an earlier denial is still cached).
+        throw TunnelError.popupDenied
+      case .none:
+        // No embedded profile (store distribution) — timing decides:
+        // a save that fails in under ~2 s never displayed a popup.
+        throw elapsed < 2 ? TunnelError.notEntitled : TunnelError.popupDenied
+      }
     }
-    // Apple quirk: re-load after the save, or the tunnel may fail to
-    // start with "no protocol found".
-    try await m.loadFromPreferences()
+  }
 
-    manager = m
+  /// Remove every profile of ours, then build a brand-new one. The fresh
+  /// save's classified error propagates — the caller surfaces the verdict.
+  private static func rebuildFromScratch(
+    command: V2GenTunnelCommand?
+  ) async throws -> NETunnelProviderManager {
+    let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+    for m in managers
+    where (m.protocolConfiguration as? NETunnelProviderProtocol)?
+      .providerBundleIdentifier == tunnelBundleID {
+      try? await m.removeFromPreferences()
+    }
+    manager = nil
+    prepared = false
+    let fresh = NETunnelProviderManager()
+    configure(fresh, command: command)
+    try await saveClassified(fresh)
+    try? await fresh.loadFromPreferences()
+    manager = fresh
     prepared = true
-    return m
+    return fresh
   }
 
   // MARK: - On-demand (Stable Connect / Kill Switch)
