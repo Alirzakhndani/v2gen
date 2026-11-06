@@ -39,8 +39,13 @@ enum TunnelController {
         return "App Group در دسترس نیست — اپ را با Sideloadly (App Groups فعال) یا AltStore دوباره نصب کنید"
       case .notEnabled:
         return "پروفایل VPN در تنظیمات غیرفعال است — تنظیمات ← VPN ← V2GEN را روشن کنید"
-      case .profileSaveFailed:
-        return "اجازهٔ VPN داده نشد — پاپ‌آپ اجازه را Allow کنید یا از تنظیمات ← VPN فعال کنید"
+      case .profileSaveFailed(let reason):
+        // The raw iOS error rides along (clipped) — it is the ONLY way to
+        // tell a denied popup from a missing network-extension entitlement
+        // (a signing problem) from the app side.
+        let clipped = reason.count > 110 ? String(reason.prefix(110)) + "…" : reason
+        return "پروفایل VPN ذخیره نشد — پاپ‌آپ «Add VPN Configuration» را Allow کنید. "
+          + "اگر پاپ‌آپ نیامد، اپ با دسترسی VPN امضا نشده است. (\(clipped))"
       }
     }
   }

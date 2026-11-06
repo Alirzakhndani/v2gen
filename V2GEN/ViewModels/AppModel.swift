@@ -43,6 +43,11 @@ final class AppModel {
   var connState: ConnState = .loading
   var configs: [ParsedConfig] = []
   var errorNote: String?
+  /// VPN-profile setup failure (permission popup / entitlement). Kept
+  /// SEPARATE from errorNote so the concurrent sub import (which resets
+  /// connState and errorNote) can never erase it — a profile problem must
+  /// stay on screen until the next successful prepare or connect.
+  var profileNote: String?
   var settingsOpen = false
   var bytes = (up: 0, down: 0)
 
@@ -155,32 +160,42 @@ final class AppModel {
   // MARK: - Boot
 
   func boot() {
+    // VPN profile at FIRST APP OPEN, before any login — the permission is
+    // bundle-level (entitlement), not account-level, so iOS can ask now.
+    // This is the moment the user expects the "Add VPN Configuration"
+    // popup, and an entitlement/signing problem surfaces on the very
+    // first launch instead of as a silent connect failure later.
+    Task { await prepareProfileQuietly() }
     if let stored = KeychainStore.loadClient() {
       client = stored
       Task { await loadSub() }
-      // Early profile: the iOS permission popup + the Settings ← VPN row
-      // appear NOW, long before the first connect — and an entitlement/
-      // signing problem surfaces immediately instead of as a mystery
-      // "cannot connect" deep inside the ladder.
-      Task { await prepareProfileQuietly() }
     } else {
       connState = .loading
     }
     startPathMonitor()
   }
 
-  /// Create/refresh the VPN profile; failures land in errorNote (honest,
-  /// actionable Persian) without blocking anything.
+  /// One prepare at a time: boot() and signIn() both fire this; a save is
+  /// already pending on the permission popup, so a second concurrent call
+  /// would race the first. The busy guard makes them sequential-safe.
+  private var profileBusy = false
+
+  /// Create/refresh the VPN profile; failures land in profileNote (honest,
+  /// actionable Persian, always visible on Home) without blocking anything.
   private func prepareProfileQuietly() async {
+    guard !profileBusy else { return }
+    profileBusy = true
+    defer { profileBusy = false }
     do {
       try await TunnelController.prepare()
+      profileNote = nil
       await TunnelController.applyOnDemandRules(
         stableConnect: stableConnect, killSwitch: killSwitch
       )
     } catch let error as TunnelController.TunnelError {
-      errorNote = error.userMessage
+      profileNote = error.userMessage
     } catch {
-      errorNote = TunnelController.TunnelError
+      profileNote = TunnelController.TunnelError
         .profileSaveFailed(String(describing: error)).userMessage
     }
   }
@@ -287,6 +302,9 @@ final class AppModel {
     guard let client0 = client else { return }
     connState = .connecting
     errorNote = nil
+    // Connecting re-attempts the profile save itself (TunnelController.start
+    // → prepareManager) — a stale profile note would only mislead now.
+    profileNote = nil
 
     // Every connect restarts from the anti-filter ENTRY (owner's flow):
     // the sub is silently re-fetched THROUGH THE WORKER, so the race list
