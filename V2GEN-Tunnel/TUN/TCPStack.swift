@@ -69,7 +69,7 @@ final class TCPStack {
 
   func handlePacket(_ raw: [UInt8]) {
     guard let ip = IPv4Packet.parse(raw) else { return }
-    switch ip.protocol {
+    switch ip.protoNum {
     case IPProtocolNumber.tcp.rawValue:
       guard let tcp = TCPPacket.parse(ip.payload) else { return }
       handleTCP(ip: ip, tcp: tcp)
@@ -589,7 +589,7 @@ final class TCPFlow {
     )
     let packet = IPv4Packet.build(
       src: remoteIP, dst: appIP,
-      protocol: IPProtocolNumber.tcp.rawValue, payload: seg
+      protoNum: IPProtocolNumber.tcp.rawValue, payload: seg
     )
     stack.onSendPackets([Data(packet)])
   }

@@ -45,7 +45,7 @@ nonisolated enum Racer {
 
   /// Lantern `behaviorFor` — per-protocol probe timeout classes.
   static func behaviorTimeout(for config: ParsedConfig) -> TimeInterval {
-    switch config.protocol {
+    switch config.proto {
     case .vless, .vmess, .ss: 2      // Lantern: Shadowsocks/VMess/VLESS/Trojan → 2000 ms
     case .other: 3                   // Lantern: protocol-specific long class
     }

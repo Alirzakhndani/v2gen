@@ -153,7 +153,7 @@ final class FakeDNS {
     )
     return IPv4Packet.build(
       src: ip.dst, dst: ip.src,
-      protocol: IPProtocolNumber.udp.rawValue, payload: udpSegment
+      protoNum: IPProtocolNumber.udp.rawValue, payload: udpSegment
     )
   }
 }

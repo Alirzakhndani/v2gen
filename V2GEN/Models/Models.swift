@@ -19,7 +19,7 @@ struct PanelClient: Codable, Equatable, Sendable {
 /// One parsed v2ray link from the subscription body.
 struct ParsedConfig: Codable, Identifiable, Equatable, Hashable, Sendable {
   var raw: String
-  var protocol: ConfigProtocol
+  var proto: ConfigProtocol
   var name: String
   var host: String
   var port: Int
