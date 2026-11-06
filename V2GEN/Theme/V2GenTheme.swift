@@ -35,7 +35,8 @@ enum V2Metrics {
 
   /// Info-slab rows (Memory / Upload / Download / Remain / Days).
   static let rowSpacing: CGFloat = 0      // hairline-separated, measured
-  static let iconChip: CGFloat = 32
+  /// Icon chip — reference-measured ⌀ ~72.7 px @2.168 = 33.5 pt.
+  static let iconChip: CGFloat = 33.5
 
   /// The connect capsule (352.5 × 80.5 pt lane, ⌀69 pt pearl knob).
   static let capsuleHeight: CGFloat = 80.5

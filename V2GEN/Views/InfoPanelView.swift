@@ -7,9 +7,10 @@ import SwiftUI
 // glass cannot sample glass). Native Toggle switches get iOS 26 glass
 // automatically and follow the system scheme.
 //
-// Row geometry approximates the reference at the standard type size and
-// GROWS with Dynamic Type (accessibility requirement — a fixed-height
-// slab would clip larger text).
+// Row geometry is reference-measured @2.168 px/pt (mockup 58F4AA58):
+// ⌀33.5 pt chips, value follows the label (+10 pt gap), 59 pt rows on
+// hairlines; the slab grows with its content (accessibility requirement —
+// a fixed-height slab would clip larger text).
 
 private struct RowDef: Identifiable {
   let key: String
@@ -22,11 +23,11 @@ private struct RowDef: Identifiable {
 }
 
 private let rows: [RowDef] = [
-  .init(key: "memory", label: "Memory Usage:", icon: "cpu", chipRadius: 10.5, hasSwitch: false),
-  .init(key: "upload", label: "Upload:", icon: "arrow.up", chipRadius: 16, hasSwitch: false),
-  .init(key: "download", label: "Download:", icon: "arrow.down", chipRadius: 16, hasSwitch: false),
-  .init(key: "remain", label: "Remain:", icon: "calendar.badge.clock", chipRadius: 10.5, hasSwitch: true),
-  .init(key: "days", label: "Days:", icon: "calendar", chipRadius: 10.5, hasSwitch: true),
+  .init(key: "memory", label: "Memory Usage:", icon: "desktopcomputer", chipRadius: 12, hasSwitch: false),
+  .init(key: "upload", label: "Upload:", icon: "arrow.up", chipRadius: 16.75, hasSwitch: false),
+  .init(key: "download", label: "Download:", icon: "arrow.down", chipRadius: 16.75, hasSwitch: false),
+  .init(key: "remain", label: "Remain:", icon: "calendar.badge.clock", chipRadius: 12, hasSwitch: true),
+  .init(key: "days", label: "Days:", icon: "calendar", chipRadius: 12, hasSwitch: true),
 ]
 
 struct InfoPanelView: View {
@@ -41,7 +42,7 @@ struct InfoPanelView: View {
         rowView(row)
       }
     }
-    .padding(.vertical, 4)
+    .padding(.vertical, 10)
     .v2SlabGlass()
     .offset(y: appeared ? 0 : 18)
     .animation(Animation.v2(.v2Reveal, reduceMotion: reduceMotion), value: appeared)
@@ -55,10 +56,10 @@ struct InfoPanelView: View {
   @ViewBuilder
   private func rowView(_ row: RowDef) -> some View {
     let value = value(for: row.key)
-    HStack(spacing: 13) {
-      // icon chip — 32 pt light frost fill, white SF Symbol
+    HStack(spacing: 6) {
+      // icon chip — 33.5 pt light frost fill, white SF Symbol
       Image(systemName: row.icon)
-        .font(.system(size: 15, weight: .medium))
+        .font(.system(size: 17, weight: .medium))
         .foregroundStyle(.white)
         .frame(width: V2Metrics.iconChip, height: V2Metrics.iconChip)
         .v2ChipFill(radius: row.chipRadius)
@@ -68,12 +69,14 @@ struct InfoPanelView: View {
         .foregroundStyle(Ink.secondary)
         .fixedSize()
 
-      Spacer(minLength: 10)
-
+      // Value follows the label (reference layout): 6 spacing + 4 = 10 pt gap.
       Text(value)
         .font(.system(size: 14.5, weight: .semibold))
         .monospacedDigit()
         .foregroundStyle(Ink.primary)
+        .padding(.leading, 4)
+
+      Spacer(minLength: 10)
 
       if row.hasSwitch {
         toggle(for: row)

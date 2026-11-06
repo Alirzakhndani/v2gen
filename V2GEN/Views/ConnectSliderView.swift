@@ -3,8 +3,10 @@ import SwiftUI
 // ── V2GEN connect control — the hero Liquid Glass capsule ─────────────────
 // A real glassEffect lane (interactive — it takes drag and tap input) with
 // a PEARL knob: the knob is a fill, not glass (glass cannot sample glass —
-// nested surfaces get fills). Reference-measured: 352.5 × 80.5 pt lane,
-// ⌀69 pt knob concentric with the left cap, commit at ~90 % of the lane.
+// nested surfaces get fills). Reference-measured (mockup 58F4AA58
+// @2.168 px/pt): ~80.5 pt lane, ⌀68–69 pt knob concentric with the left
+// cap, 6 pt inset, chevron ~13.8 × 21.7 pt @4.4 stroke, 21 pt lane
+// label, commit at ~90 % of the lane.
 //
 // Interaction — iPhone answer-call DNA, ported from the web app:
 //   · drag right → emerald halo + light trail grow behind the knob (1:1
@@ -159,28 +161,30 @@ struct ConnectSliderView: View {
       switch state {
       case .ready:
         Text("Slide to Connect")
-          .font(.system(size: 18, weight: .medium))
+          .font(.system(size: 21, weight: .regular))
           .foregroundStyle(Ink.lane)
       case .loading:
         EmptyView()
       case .connecting:
         Text("Connecting…")
-          .font(.system(size: 18, weight: .medium))
+          .font(.system(size: 21, weight: .medium))
           .foregroundStyle(Ink.primary.opacity(0.9))
       case .connected:
         Text("Connected")
-          .font(.system(size: 18, weight: .semibold))
+          .font(.system(size: 21, weight: .semibold))
           .foregroundStyle(Ink.connected)
       case .disconnecting:
         Text("Disconnecting…")
-          .font(.system(size: 18, weight: .medium))
+          .font(.system(size: 21, weight: .medium))
           .foregroundStyle(Ink.primary.opacity(0.9))
       case .error:
         Text("Couldn't connect — try again")
-          .font(.system(size: 18, weight: .medium))
+          .font(.system(size: 21, weight: .medium))
           .foregroundStyle(Ink.error)
       }
     }
+    .lineLimit(1)
+    .minimumScaleFactor(0.82)
     .shadow(color: Color(black: 0.036, opacity: 0.6), radius: 2, y: 1)
     .frame(maxWidth: .infinity)
     .padding(.leading, V2Metrics.knob / 2 + V2Metrics.knobInset)
@@ -244,9 +248,9 @@ struct ConnectSliderView: View {
         ChevronGlyph()
           .stroke(
             Color(red: 0.11, green: 0.137, blue: 0.20),
-            style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round)
+            style: StrokeStyle(lineWidth: 4.4, lineCap: .round, lineJoin: .round)
           )
-          .frame(width: 12.5, height: 27)
+          .frame(width: 19, height: 22.5)
       }
     }
     .animation(.easeOut(duration: 0.25), value: state)

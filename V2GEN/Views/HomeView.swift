@@ -5,6 +5,12 @@ import UIKit
 // The wallpaper is the fixed reference backdrop; the glass slab and capsule
 // float over it as Liquid Glass with light ink. State is announced to
 // VoiceOver (state ≠ color alone) and paired with sensory feedback.
+//
+// Vertical rhythm — reference-measured (mockup 58F4AA58, iPhone 16 Pro
+// canvas): title center ≈ 14.9 %H, card top ≈ 19.9 %H, pill center
+// ≈ 78.4 %H, pill bottom ≈ 131 pt above the home indicator. The paddings
+// below land on those anchors on 59/47 pt-safe-area devices (empirically
+// calibrated against the v1.1 screenshot: title cap top = 63.7 + padding).
 
 struct HomeView: View {
   @Environment(AppModel.self) private var model
@@ -17,12 +23,12 @@ struct HomeView: View {
       header
       InfoPanelView()
         .padding(.horizontal, 18.5)
-        .padding(.top, 16)
+        .padding(.top, 19)
       Spacer(minLength: 20)
       errorNote
       ConnectSliderView()
         .padding(.horizontal, 23)
-        .padding(.bottom, 60)
+        .padding(.bottom, 110)
     }
     .sheet(isPresented: Binding(
       get: { model.settingsOpen },
@@ -66,9 +72,9 @@ struct HomeView: View {
           model.settingsOpen = true
         } label: {
           Image(systemName: "gearshape.fill")
-            .font(.system(size: 22, weight: .medium))
+            .font(.system(size: 18.5, weight: .medium))
             .foregroundStyle(Ink.primary)
-            .frame(width: 46, height: 46)
+            .frame(width: 40, height: 40)
             .contentShape(.rect)
         }
         .buttonStyle(.glass)
@@ -77,7 +83,7 @@ struct HomeView: View {
       }
     }
     .padding(.horizontal, 20)
-    .padding(.top, 12)
+    .padding(.top, 49)
     // Entrance — the glass gear enters on SCALE only (transform-only
     // entrance for backdrop surfaces); the title ink fades.
     .opacity(appeared ? 1 : 0)
