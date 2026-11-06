@@ -47,7 +47,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
   // MARK: - Start / stop
 
   override func startTunnel(
-    _ options: [String: Any],
+    _ options: [String: Any]?,
     completionHandler: @escaping (Error?) -> Void
   ) {
     guard let command = V2GenIPCFile.read(
@@ -130,7 +130,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
   }
 
   override func stopTunnel(
-    _ reason: NEProviderStopReason,
+    with reason: NEProviderStopReason,
     completionHandler: @escaping () -> Void
   ) {
     reloadObserver = nil
@@ -177,7 +177,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
     guard let config = LinkConfig.parse(command.link) else { return }
     currentCommandID = command.id
     engine?.update(config: config, commandID: command.id, tag: command.tag)
-    stack?.noteConfigChanged()
+    stack?.resetAll()
   }
 
   // MARK: - Stats (tunnel → app)
