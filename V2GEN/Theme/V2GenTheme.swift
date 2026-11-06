@@ -60,6 +60,57 @@ extension View {
     glassEffect(.regular, in: .rect(cornerRadius: V2Metrics.slabCorner))
   }
 
+  /// The connect lane — the hero FLOATING BAR glass (the Instagram-style
+  /// reference: very clear, bright, hairline-rimmed). NOT the adaptive
+  /// `.regular` glassEffect — over this app's fixed dark glacier wallpaper
+  /// that variant renders a flat dark matte slab (adaptive darkening +
+  /// heavy blur weight; `tint(_:)` only adds color, it cannot thin the
+  /// material). Instead the lens is a REAL system material —
+  /// `.ultraThinMaterial`, the lightest blur iOS ships — so the wallpaper
+  /// stays clearly visible through the lane, and the glass look comes from
+  /// deterministic layered optics ON the lens:
+  ///   · body wash — white, brighter at the top (sheen), faint bounce at
+  ///     the bottom (light reflecting inside the glass)
+  ///   · hairline rim — 1 pt stroke, brightest at the top edge where the
+  ///     light catches, dimmer at the sides, a soft bounce at the bottom
+  ///   · float shadow — detaches the bar from the wallpaper
+  /// Every alpha is fixed (the backdrop is the fixed dark wallpaper, so
+  /// the optics can be), and Reduce Transparency is honored natively by
+  /// the material. Interaction lives on the content above the lens.
+  func v2LaneGlass() -> some View {
+    background(
+      Capsule()
+        .fill(.ultraThinMaterial)
+        .overlay(
+          Capsule().fill(
+            LinearGradient(
+              stops: [
+                .init(color: .white.opacity(0.26), location: 0.00),
+                .init(color: .white.opacity(0.10), location: 0.18),
+                .init(color: .white.opacity(0.06), location: 0.55),
+                .init(color: .white.opacity(0.13), location: 1.00),
+              ],
+              startPoint: .top, endPoint: .bottom
+            )
+          )
+        )
+        .overlay(
+          Capsule().strokeBorder(
+            LinearGradient(
+              stops: [
+                .init(color: .white.opacity(0.85), location: 0.00),
+                .init(color: .white.opacity(0.22), location: 0.45),
+                .init(color: .white.opacity(0.50), location: 1.00),
+              ],
+              startPoint: .top, endPoint: .bottom
+            ),
+            lineWidth: 1
+          )
+        )
+        .shadow(color: .black.opacity(0.42), radius: 18, y: 10)
+    )
+  }
+
   /// Fill for icon chips and small controls that live INSIDE a glass
   /// surface (glass-on-glass rule: a second sampling lens there reads as
   /// mud — nested controls get a light frost fill instead).

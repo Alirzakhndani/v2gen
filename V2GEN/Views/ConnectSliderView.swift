@@ -1,9 +1,15 @@
 import SwiftUI
 
-// ── V2GEN connect control — the hero Liquid Glass capsule ─────────────────
-// A real glassEffect lane (interactive — it takes drag and tap input) with
-// a PEARL knob: the knob is a fill, not glass (glass cannot sample glass —
-// nested surfaces get fills). Reference-measured (mockup 58F4AA58
+// ── V2GEN connect control — the hero floating glass capsule ─────────────────
+// The lane material is v2LaneGlass (V2GenTheme): an .ultraThinMaterial
+// lens — the lightest REAL system blur, the glacier wallpaper stays
+// clearly visible through it — with layered glass optics on top (top
+// sheen, bottom bounce, hairline bright rim, float shadow): the
+// Instagram-floating-bar look, not the flat dark matte the adaptive
+// .regular glassEffect rendered over this dark backdrop. The knob is a
+// PEARL fill, not glass (a sampling lens nested over the lane reads as
+// mud — fills read as depth; the knob shadow ON the clear lane is what
+// makes the glass feel thick). Reference-measured (mockup 58F4AA58
 // @2.168 px/pt): ~80.5 pt lane, ⌀68–69 pt knob concentric with the left
 // cap, 6 pt inset, chevron ~13.8 × 21.7 pt @4.4 stroke, 21 pt lane
 // label, commit at ~90 % of the lane.
@@ -56,7 +62,7 @@ struct ConnectSliderView: View {
       knob
     }
     .frame(height: V2Metrics.capsuleHeight)
-    .glassEffect(.regular.interactive(), in: .capsule)
+    .v2LaneGlass()
     .contentShape(.capsule)
     .onGeometryChange(for: CGFloat.self, of: { proxy in
       proxy.size.width
