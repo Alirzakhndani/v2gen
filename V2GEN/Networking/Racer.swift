@@ -138,10 +138,11 @@ extension Racer {
     } else {
       parameters = .tcp
     }
-    // Bind to the physical interface while the tunnel is up (see above).
-    if let name = physicalInterfaceName(), !name.isEmpty {
-      parameters.requiredInterfaceName = name
-    }
+    // NOTE: binding to the physical interface by name isn't possible in the
+    // app process (NWInterface objects can't be constructed from a name).
+    // Live-session probes may route through the tunnel — acceptable, since
+    // the failover ladder primarily reacts to real dial outcomes in tunnel
+    // stats rather than these probes.
     return parameters
   }
 

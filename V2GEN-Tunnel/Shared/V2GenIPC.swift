@@ -196,7 +196,7 @@ enum V2GenDarwin {
 /// One Darwin-notification subscription. `deinit` removes it.
 final class DarwinObservationToken {
   private static let lock = NSLock()
-  private static var registry: [UnsafeRawPointer: DarwinObservationToken] = [:]
+  nonisolated(unsafe) private static var registry: [UnsafeRawPointer: DarwinObservationToken] = [:]
 
   private let name: String
   private let handler: () -> Void
