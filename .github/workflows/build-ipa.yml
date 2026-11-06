@@ -10,7 +10,9 @@
 name: Build V2GEN IPA
 
 on:
-  workflow_dispatch: {}          # manual "Run workflow" button (Actions tab)
+  workflow_dispatch: {}          # manual "Run workflow" button
+  push:
+    branches: [main, master]
 
 jobs:
   build:
@@ -26,18 +28,8 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Probe SDK override signatures
-        run: bash probe-sigs.sh
-
-      - name: Dump NEPacketTunnelProvider SDK signatures
-        run: |
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          IFACE=$(find "$SDK/System/Library/Frameworks/NetworkExtension.framework" -name "*.swiftinterface" | head -1)
-          echo "swiftinterface: $IFACE"
-          grep -n "func startTunnel\|func stopTunnel\|func handleAppMessage" "$IFACE" || echo "no interface found"
-
       - name: Build unsigned + ad-hoc signed IPA
-        run: bash build-ipa.sh
+        run: ./build-ipa.sh
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4

@@ -45,7 +45,7 @@ nonisolated enum Racer {
 
   /// Lantern `behaviorFor` — per-protocol probe timeout classes.
   static func behaviorTimeout(for config: ParsedConfig) -> TimeInterval {
-    switch config.proto {
+    switch config.protocol {
     case .vless, .vmess, .ss: 2      // Lantern: Shadowsocks/VMess/VLESS/Trojan → 2000 ms
     case .other: 3                   // Lantern: protocol-specific long class
     }
@@ -66,9 +66,7 @@ nonisolated enum Racer {
       parameters: probeParameters(for: config),
       timeout: limit
     )
-    let d = start.duration(to: .now)
-    let ms = Int(d.components.seconds * 1000
-      + d.components.attoseconds / 1_000_000_000_000)
+    let ms = Int(start.duration(to: .now).milliseconds)
     return ProbeResult(config: config, rttMs: ready ? max(ms, 1) : nil)
   }
 
@@ -130,21 +128,20 @@ extension Racer {
       sec_protocol_options_set_verify_block(
         options,
         { _, _, complete in complete(true) },
-        DispatchQueue.global()
+        nil
       )
       let name = config.sni ?? config.host
       if !name.isEmpty {
-        sec_protocol_options_set_tls_server_name(options, name)
+        sec_protocol_options_set_tls_server_name(options, name as CFString)
       }
       parameters = NWParameters(tls: tls)
     } else {
       parameters = .tcp
     }
-    // NOTE: binding to the physical interface by name isn't possible in the
-    // app process (NWInterface objects can't be constructed from a name).
-    // Live-session probes may route through the tunnel — acceptable, since
-    // the failover ladder primarily reacts to real dial outcomes in tunnel
-    // stats rather than these probes.
+    // Bind to the physical interface while the tunnel is up (see above).
+    if let name = physicalInterfaceName(), !name.isEmpty {
+      parameters.requiredInterfaceName = name
+    }
     return parameters
   }
 

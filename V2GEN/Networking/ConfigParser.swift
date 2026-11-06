@@ -18,7 +18,7 @@ enum ConfigParser {
     guard !link.isEmpty else { return nil }
     return ParsedConfig(
       raw: link,
-      proto: .other,
+      protocol: .other,
       name: String(link.prefix(24)),
       host: "",
       port: 0
@@ -51,7 +51,7 @@ enum ConfigParser {
     }
 
     return ParsedConfig(
-      raw: link, proto: .vless,
+      raw: link, protocol: .vless,
       name: name.isEmpty ? host : name,
       host: host, port: port,
       isTLS: isTLS, sni: sni
@@ -72,7 +72,7 @@ enum ConfigParser {
     let sni = (json["sni"] as? String).flatMap(nonEmpty)
 
     return ParsedConfig(
-      raw: link, proto: .vmess,
+      raw: link, protocol: .vmess,
       name: (json["ps"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? host,
       host: host, port: port,
       isTLS: isTLS, sni: sni
@@ -100,14 +100,14 @@ enum ConfigParser {
       let port = Int(hostPart[hostPart.index(after: lastColon)...]) ?? 443
       guard !host.isEmpty else { return nil }
       return ParsedConfig(
-        raw: link, proto: .ss, name: name.isEmpty ? host : name,
+        raw: link, protocol: .ss, name: name.isEmpty ? host : name,
         host: host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
         port: port
       )
     }
 
     // ss://base64(method:pass@host:port) — the whole body is encoded.
-    guard let decoded = String(validating: Data(base64Decoded: body), as: UTF8.self),
+    guard let decoded = String(data: Data(base64Decoded: body), as: UTF8.self),
           let at = decoded.range(of: "@", options: .backwards)
     else { return nil }
     let tail = String(decoded[at.upperBound...])
@@ -117,7 +117,7 @@ enum ConfigParser {
       .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
     guard !host.isEmpty else { return nil }
     return ParsedConfig(
-      raw: link, proto: .ss, name: name.isEmpty ? host : name,
+      raw: link, protocol: .ss, name: name.isEmpty ? host : name,
       host: host, port: port
     )
   }

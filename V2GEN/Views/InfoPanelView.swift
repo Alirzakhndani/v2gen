@@ -120,7 +120,7 @@ struct InfoPanelView: View {
 
   private func value(for key: String) -> String {
     let panel = model.panelRows
-    return switch key {
+    switch key {
     case "memory": panel.memory
     case "upload": panel.upload
     case "download": panel.download

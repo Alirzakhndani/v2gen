@@ -27,7 +27,7 @@ final class NWByteStream: ByteStream {
       let sec = tlsOptions.securityProtocolOptions
       let name = sni.isEmpty ? host : sni
       if !name.isEmpty {
-        sec_protocol_options_set_tls_server_name(sec, name)
+        sec_protocol_options_set_tls_server_name(sec, name as CFString)
       }
       if !verifyTLS {
         // Self-signed / origin-certificate endpoints (allowInsecure=1 links):
@@ -35,7 +35,7 @@ final class NWByteStream: ByteStream {
         // authenticated, so this is the same trust model xray uses for
         // allowInsecure.
         sec_protocol_options_set_verify_block(
-          sec, { _, _, complete in complete(true) }, queue
+          sec, { _, _, complete in complete(true) }, nil
         )
       }
       parameters = NWParameters(tls: tlsOptions)
@@ -71,12 +71,12 @@ final class NWByteStream: ByteStream {
   func read(completion: @escaping (Data?, Error?) -> Void) {
     queue.async { [weak self] in
       guard let self, !self.closed else {
-        completion(nil, self?.failed ?? StreamEOFError())
+        completion(nil, self.failed ?? StreamEOFError())
         return
       }
       guard self.pendingRead == nil else {
         // Protocol violation by a codec — treat as fatal.
-        self.fail(NWError.posix(.EPROTO), closeNow: true)
+        self.fail(NWError.posix(.codeError), closeNow: true)
         completion(nil, self.failed)
         return
       }

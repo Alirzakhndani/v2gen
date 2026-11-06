@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import Crypto
 import CommonCrypto
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -117,9 +117,8 @@ enum V2Crypto {
         out.withUnsafeMutableBufferPointer { outPtr in
           CCCrypt(
             CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionECBMode),
-            keyPtr.baseAddress, key.count,
-            nil,
             inPtr.baseAddress, block.count,
+            keyPtr.baseAddress, key.count,
             outPtr.baseAddress, outPtr.count, &moved
           )
         }

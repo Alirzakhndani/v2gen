@@ -113,7 +113,7 @@ final class WSStream: ByteStream {
     func readResponse(_ accumulated: Data) {
       if let range = accumulated.range(of: Data("\r\n\r\n".utf8)) {
         let header = String(
-          validating: accumulated[accumulated.startIndex..<range.lowerBound], as: UTF8.self
+          data: accumulated[accumulated.startIndex..<range.lowerBound], as: UTF8.self
         ) ?? ""
         let trailing = Data(accumulated[range.upperBound...])
         let statusLine = header.split(separator: "\r\n").first.map(String.init) ?? ""
@@ -212,7 +212,7 @@ final class WSStream: ByteStream {
   func read(completion: @escaping (Data?, Error?) -> Void) {
     queue.async { [weak self] in
       guard let self, !self.closed else {
-        completion(nil, self?.failed ?? StreamEOFError())
+        completion(nil, self.failed ?? StreamEOFError())
         return
       }
       guard self.pendingRead == nil else {
@@ -308,7 +308,7 @@ final class WSStream: ByteStream {
       case .error(let error):
         completionHandler(.error(error))
       case .continuation(let partial):
-        self.readContinuation(into: partial, completion: completionHandler)
+        self.readContinuation(into: partial, completion: completion)
       }
     }
   }

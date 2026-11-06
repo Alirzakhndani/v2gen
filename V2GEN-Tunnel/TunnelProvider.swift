@@ -44,20 +44,51 @@ final class TunnelProvider: NEPacketTunnelProvider {
   private var lastPostedState: V2GenTunnelStats.State?
   private var currentCommandID = 0
 
+  // ── Stable Connect (background failover) / Kill Switch (fail-closed) ──
+  private var command: V2GenTunnelCommand?
+  /// When we first saw the persistent .failing state on the CURRENT link —
+  /// the auto-advance waits a short grace window so a single flaky dial
+  /// does not rotate the config.
+  private var failingSince: Date?
+  /// Index into command.failoverLinks (0 = the primary link that started
+  /// this tunnel). Never walks backwards — a link that failed stays benched
+  /// for the life of the session.
+  private var failoverIndex = 0
+
   // MARK: - Start / stop
 
   override func startTunnel(
-    options: [String : NSObject]?,
+    _ options: [String: Any],
     completionHandler: @escaping (Error?) -> Void
   ) {
-    guard let command = V2GenIPCFile.read(
+    // Command transport, in priority order:
+    //   1. the App Group file (freshest — the app just wrote it)
+    //   2. the profile's providerConfiguration (survives signers without
+    //      App Groups AND on-demand restarts while the app is suspended)
+    //   3. the startVPNTunnel options dictionary (same JSON, cold path #2)
+    let command = V2GenIPCFile.read(
       V2GenTunnelCommand.self, from: V2GenIPC.commandURL
-    ) else {
+    ) ?? Self.commandFromProfile(self) ?? Self.commandFromOptions(options)
+
+    guard let command else {
       completionHandler(ProviderError.noCommand)
       return
     }
+    self.command = command
+    self.failoverIndex = 0
+    self.failingSince = nil
+
+    // Kill Switch fail-closed: even an UNPARSEABLE link must not tear the
+    // tunnel down (a dead tunnel = traffic leaks through the physical
+    // interface). Bring the TUN up with no engine — every dial fails, so
+    // nothing leaves the device. The app's ladder will hot-swap a good
+    // config in as soon as it has one.
     guard let config = LinkConfig.parse(command.link) else {
-      completionHandler(ProviderError.badLink)
+      if command.killSwitch == true {
+        bringUpBlackhole(command: command, completionHandler: completionHandler)
+      } else {
+        completionHandler(ProviderError.badLink)
+      }
       return
     }
     currentCommandID = command.id
@@ -89,6 +120,27 @@ final class TunnelProvider: NEPacketTunnelProvider {
     self.engine = engine
     self.stack = stack
 
+    installTunnelSettings { [weak self] error in
+      guard let self else {
+        completionHandler(nil)
+        return
+      }
+      if let error {
+        completionHandler(error)
+        return
+      }
+      self.installReloadObserver()
+      self.startStatsLoop()
+      self.startReadLoop()
+      completionHandler(nil)
+    }
+  }
+
+  /// Default routes v4+v6 through the TUN, DNS hijacked to the fake
+  /// resolver — shared by the normal start and the Kill Switch blackhole.
+  private func installTunnelSettings(
+    completion: @escaping (Error?) -> Void
+  ) {
     let settings = NEPacketTunnelNetworkSettings(
       tunnelRemoteAddress: "198.18.0.1"
     )
@@ -113,24 +165,13 @@ final class TunnelProvider: NEPacketTunnelProvider {
 
     settings.mtu = 1500
 
-    setTunnelNetworkSettings(settings) { [weak self] error in
-      guard let self else {
-        completionHandler(nil)
-        return
-      }
-      if let error {
-        completionHandler(error)
-        return
-      }
-      self.installReloadObserver()
-      self.startStatsLoop()
-      self.startReadLoop()
-      completionHandler(nil)
+    setTunnelNetworkSettings(settings) { error in
+      completion(error)
     }
   }
 
   override func stopTunnel(
-    with reason: NEProviderStopReason,
+    _ reason: NEProviderStopReason,
     completionHandler: @escaping () -> Void
   ) {
     reloadObserver = nil
@@ -140,6 +181,58 @@ final class TunnelProvider: NEPacketTunnelProvider {
     stack = nil
     engine = nil
     completionHandler()
+  }
+
+  // MARK: - Command transports (cold paths)
+
+  /// The command JSON riding inside the saved VPN profile — set by the app
+  /// on every start, so on-demand restarts always find the LATEST config
+  /// even with the app suspended and/or no App Group.
+  private static func commandFromProfile(
+    _ provider: NEPacketTunnelProvider
+  ) -> V2GenTunnelCommand? {
+    guard let dict = provider.protocolConfiguration?.providerConfiguration
+      as? [String: Any] else { return nil }
+    return V2GenTunnelCommand.fromProviderConfiguration(dict)
+  }
+
+  private static func commandFromOptions(
+    _ options: [String: Any]
+  ) -> V2GenTunnelCommand? {
+    V2GenTunnelCommand.fromProviderConfiguration(options)
+  }
+
+  // MARK: - Kill Switch blackhole
+
+  /// TUN up, NO engine: every TCP dial fails inside the stack, DNS answers
+  /// nothing usable — the device is quiet while the app finds a good
+  /// config. Never call this when killSwitch is off (a dead link should
+  /// then fail honestly so iOS stops retrying).
+  private func bringUpBlackhole(
+    command: V2GenTunnelCommand,
+    completionHandler: @escaping (Error?) -> Void
+  ) {
+    self.command = command
+    currentCommandID = command.id
+    let stack = TCPStack(queue: stackQueue)
+    stack.onDial = { _, _, _, _, onError in onError("blackhole") }   // fail-closed
+    stack.onBytes = { _, _ in }
+    stack.onSendPackets = { [weak self] packets in
+      self?.send(packets)
+    }
+    stack.onDNSPacket = { _ in }                          // no answers
+    self.stack = stack
+
+    installTunnelSettings { [weak self] error in
+      guard error == nil else {
+        completionHandler(error)
+        return
+      }
+      self?.installReloadObserver()   // the app may hot-swap a good config in
+      self?.startStatsLoop()
+      self?.startReadLoop()
+      completionHandler(nil)
+    }
   }
 
   // MARK: - Packet plumbing
@@ -177,7 +270,7 @@ final class TunnelProvider: NEPacketTunnelProvider {
     guard let config = LinkConfig.parse(command.link) else { return }
     currentCommandID = command.id
     engine?.update(config: config, commandID: command.id, tag: command.tag)
-    stack?.resetAll()
+    stack?.noteConfigChanged()
   }
 
   // MARK: - Stats (tunnel → app)
@@ -193,7 +286,24 @@ final class TunnelProvider: NEPacketTunnelProvider {
   }
 
   private func publishStats() {
-    guard let engine else { return }
+    // Blackhole mode (Kill Switch with no parseable config): no engine, but
+    // the app still deserves honest stats — failing + blackholed tag.
+    guard let engine else {
+      let blackhole = V2GenTunnelStats(
+        commandID: currentCommandID,
+        tag: command?.tag ?? "blackhole",
+        state: .failing,
+        bytesUp: 0, bytesDown: 0, flows: 0,
+        lastError: "kill-switch blackhole — no working config",
+        updatedAt: Date().timeIntervalSince1970
+      )
+      V2GenIPCFile.write(blackhole, to: V2GenIPC.statsURL)
+      if lastPostedState != blackhole.state {
+        lastPostedState = blackhole.state
+        V2GenDarwin.post(V2GenNotifyStats)
+      }
+      return
+    }
     // flowCount syncs onto the stack queue — safe here (stats queue ≠ stack).
     let snapshot = engine.snapshot(flows: stack?.flowCount ?? 0)
     V2GenIPCFile.write(snapshot, to: V2GenIPC.statsURL)
@@ -201,5 +311,54 @@ final class TunnelProvider: NEPacketTunnelProvider {
       lastPostedState = snapshot.state
       V2GenDarwin.post(V2GenNotifyStats)
     }
+    // Stable Connect: the CURRENT link has been failing for a grace window
+    // → rotate to the next ranked link (update() hot-swaps the engine's
+    // config; live flows drain through their old connections).
+    maybeAdvanceFailover(snapshot: snapshot)
+  }
+
+  // MARK: - Stable Connect auto-advance
+
+  /// Grace window before rotating: a single flaky dial must not bounce the
+  /// user between configs.
+  private static let failoverGrace: TimeInterval = 4.0
+
+  private func maybeAdvanceFailover(snapshot: V2GenTunnelStats) {
+    guard let command, command.stableConnect == true else { return }
+    guard let links = command.failoverLinks, !links.isEmpty else { return }
+
+    if snapshot.state != .failing {
+      failingSince = nil
+      return
+    }
+    // Count the primary link as index 0 — the next candidate is
+    // failoverIndex + 1.
+    let next = failoverIndex + 1
+    guard next <= links.count else { return }   // list exhausted — keep trying
+
+    let now = Date()
+    if let since = failingSince {
+      guard now.timeIntervalSince(since) >= Self.failoverGrace else { return }
+    } else {
+      failingSince = now
+      return
+    }
+
+    let link = links[next - 1]
+    let tag = command.failoverTags.map { $0[min(next - 1, $0.count - 1)] }
+      ?? "failover-\(next)"
+    guard let config = LinkConfig.parse(link) else {
+      // Unparseable candidate — skip it and keep walking.
+      failoverIndex = next
+      failingSince = now
+      return
+    }
+    failoverIndex = next
+    failingSince = now
+    // NOTE: do NOT touch currentCommandID — it guards reload staleness
+    // against the app's monotonic ids. Failover rotations reuse the SAME
+    // command id; the tag in stats names the live member.
+    engine?.update(config: config, commandID: command.id, tag: tag)
+    stack?.noteConfigChanged()
   }
 }

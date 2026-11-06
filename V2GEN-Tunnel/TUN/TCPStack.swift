@@ -40,7 +40,7 @@ final class TCPStack {
   var onDNSPacket: ((IPv4Packet) -> Void)?
 
   fileprivate var flows: [FlowKey: TCPFlow] = [:]
-  fileprivate let queue: DispatchQueue
+  private let queue: DispatchQueue
   private var sweepTimer: DispatchSourceTimer?
 
   fileprivate static let maxFlows = 512
@@ -69,7 +69,7 @@ final class TCPStack {
 
   func handlePacket(_ raw: [UInt8]) {
     guard let ip = IPv4Packet.parse(raw) else { return }
-    switch ip.protoNum {
+    switch ip.protocol {
     case IPProtocolNumber.tcp.rawValue:
       guard let tcp = TCPPacket.parse(ip.payload) else { return }
       handleTCP(ip: ip, tcp: tcp)
@@ -589,7 +589,7 @@ final class TCPFlow {
     )
     let packet = IPv4Packet.build(
       src: remoteIP, dst: appIP,
-      protoNum: IPProtocolNumber.tcp.rawValue, payload: seg
+      protocol: IPProtocolNumber.tcp.rawValue, payload: seg
     )
     stack.onSendPackets([Data(packet)])
   }

@@ -133,11 +133,11 @@ final class FakeDNS {
     respFlags |= 0
     out.append(UInt8(respFlags >> 8))
     out.append(UInt8(respFlags & 0xFF))
-    out.append(0x00); out.append(0x01)   // QDCOUNT (echo the one question)
+    out.append(0x00, 0x01)   // QDCOUNT (echo the one question)
     out.append(UInt8(answerCount >> 8))
     out.append(UInt8(answerCount & 0xFF))
-    out.append(0x00); out.append(0x00)   // NSCOUNT
-    out.append(0x00); out.append(0x00)   // ARCOUNT
+    out.append(0x00, 0x00)   // NSCOUNT
+    out.append(0x00, 0x00)   // ARCOUNT
 
     // Question section, verbatim (name + qtype + qclass).
     let questionEnd = idx + 4
@@ -153,7 +153,7 @@ final class FakeDNS {
     )
     return IPv4Packet.build(
       src: ip.dst, dst: ip.src,
-      protoNum: IPProtocolNumber.udp.rawValue, payload: udpSegment
+      protocol: IPProtocolNumber.udp.rawValue, payload: udpSegment
     )
   }
 }

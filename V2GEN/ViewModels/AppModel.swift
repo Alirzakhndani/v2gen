@@ -119,6 +119,28 @@ final class AppModel {
   var showRemain = false
   var showDays = false
 
+  // ── Connection preferences (Settings sheet) ─────────────────────────
+  var stableConnect: Bool {
+    get { AppSettings.stableConnect }
+    set { AppSettings.stableConnect = newValue }
+  }
+  var killSwitch: Bool {
+    get { AppSettings.killSwitch }
+    set { AppSettings.killSwitch = newValue }
+  }
+
+  /// Toggle handler: persist + refresh the profile's on-demand rules (no
+  /// running-tunnel disruption). The next connect embeds the flags in the
+  /// command itself.
+  func setStableConnect(_ on: Bool) {
+    stableConnect = on
+    Task { await TunnelController.applyOnDemandRules(stableConnect: on, killSwitch: killSwitch) }
+  }
+  func setKillSwitch(_ on: Bool) {
+    killSwitch = on
+    Task { await TunnelController.applyOnDemandRules(stableConnect: stableConnect, killSwitch: on) }
+  }
+
   // ── Timing ──────────────────────────────────────────────────────────────
   // Lantern's background probe runs every 180 s, but it also has a REAL
   // data plane whose dial/stall/reset failures drive switching. The real
@@ -136,10 +158,31 @@ final class AppModel {
     if let stored = KeychainStore.loadClient() {
       client = stored
       Task { await loadSub() }
+      // Early profile: the iOS permission popup + the Settings ← VPN row
+      // appear NOW, long before the first connect — and an entitlement/
+      // signing problem surfaces immediately instead of as a mystery
+      // "cannot connect" deep inside the ladder.
+      Task { await prepareProfileQuietly() }
     } else {
       connState = .loading
     }
     startPathMonitor()
+  }
+
+  /// Create/refresh the VPN profile; failures land in errorNote (honest,
+  /// actionable Persian) without blocking anything.
+  private func prepareProfileQuietly() async {
+    do {
+      try await TunnelController.prepare()
+      await TunnelController.applyOnDemandRules(
+        stableConnect: stableConnect, killSwitch: killSwitch
+      )
+    } catch let error as TunnelController.TunnelError {
+      errorNote = error.userMessage
+    } catch {
+      errorNote = TunnelController.TunnelError
+        .profileSaveFailed(String(describing: error)).userMessage
+    }
   }
 
   // MARK: - Sign-in / out
@@ -154,6 +197,9 @@ final class AppModel {
       client = c
       configs = []
       Task { await loadSub() }
+      // Fresh sign-in — the VPN profile popup belongs to THIS moment,
+      // not buried in the first connect attempt.
+      Task { await prepareProfileQuietly() }
       return nil
     } catch let PanelError.panel(message) {
       return message
@@ -292,15 +338,30 @@ final class AppModel {
     // tunnel — so the dial it forces is the real end-to-end proof that
     // this config carries the user's traffic. A candidate that cannot is
     // an honest user-failure; the next in rank takes its place.
+    //
+    // Hot-swap fast path: while the tunnel is already up (candidate ≥ 2)
+    // and the App Group works, rotation is a swap() — no stop/start cycle,
+    // no on-demand race, Lantern-fast member switch.
+    let canHotSwap = V2GenIPC.commandURL != nil
+    var tunnelRunning = false
     var winner: ParsedConfig?
     var tried = Set<String>()
     while tried.count < 3 {
       tried.insert(candidate.id)
       do {
-        try await startTunnel(with: candidate)
+        if tunnelRunning && canHotSwap {
+          commandID += 1
+          TunnelController.swap(command: makeCommand(candidate))
+          try? await Task.sleep(for: .milliseconds(500))  // engine reload lands
+        } else {
+          try await startTunnel(with: candidate)
+          tunnelRunning = true
+        }
       } catch {
         await TunnelController.stop()
-        errorNote = "اجازهٔ VPN داده نشد — از تنظیمات ← VPN فعال کنید"
+        tunnelRunning = false
+        errorNote = (error as? TunnelController.TunnelError)?.userMessage
+          ?? "اتصال تونل ناموفق بود — دوباره تلاش کنید"
         connState = .error
         return
       }
@@ -308,11 +369,23 @@ final class AppModel {
         winner = candidate
         break
       }
-      await TunnelController.stop()
       state.recordUserFailure(tag: candidate.id)
       guard let next = state.ranked().map(\.config)
         .first(where: { alive.contains($0.id) && !tried.contains($0.id) })
-      else { break }
+      else {
+        // Kill Switch: leave the failing tunnel UP — traffic dies INSIDE
+        // the TUN (fail-closed) and on-demand keeps retrying it while the
+        // app looks for a better config. Without it: honest teardown.
+        if !killSwitch {
+          await TunnelController.stop()
+          tunnelRunning = false
+        }
+        break
+      }
+      if !canHotSwap {
+        await TunnelController.stop()
+        tunnelRunning = false
+      }
       candidate = next
       try? await Task.sleep(for: .milliseconds(600))
     }
@@ -320,6 +393,13 @@ final class AppModel {
     guard let best = winner else {
       state.setCurrent(nil)
       SelectionHistoryStore.save(state)
+      // No winner: tear the trial tunnel down — EXCEPT under the Kill
+      // Switch, where a failing TUN still beats a leak (traffic dies
+      // inside it; on-demand keeps retrying while the app looks for a
+      // better moment).
+      if !killSwitch, tunnelRunning {
+        await TunnelController.stop()
+      }
       errorNote = "هیچ کانفیگی از اینترنت شما پاسخ نداد"
       connState = .error
       return
@@ -354,12 +434,28 @@ final class AppModel {
 
   // MARK: - Tunnel plumbing (real data plane)
 
+  /// The full command for a config: RAW link + every flag + the ranked
+  /// failover list (Stable Connect rotates through it on its own when the
+  /// app is suspended).
+  private func makeCommand(_ config: ParsedConfig) -> V2GenTunnelCommand {
+    let ranked = (select?.ranked() ?? [])
+      .map(\.config)
+      .filter { $0.id != config.id }
+    return V2GenTunnelCommand(
+      id: commandID,
+      link: config.raw,
+      tag: config.name,
+      failoverLinks: ranked.map(\.raw),
+      failoverTags: ranked.map(\.name),
+      stableConnect: stableConnect,
+      killSwitch: killSwitch
+    )
+  }
+
   /// Start (or restart) the tunnel with a config's raw link.
   private func startTunnel(with config: ParsedConfig) async throws {
     commandID += 1
-    try await TunnelController.start(
-      command: V2GenTunnelCommand(id: commandID, link: config.raw, tag: config.name)
-    )
+    try await TunnelController.start(command: makeCommand(config))
   }
 
   /// Prove the candidate's data plane: the /healthz check opens a FRESH
@@ -367,6 +463,21 @@ final class AppModel {
   /// byte counter must move — the request really went through the tunnel.
   private func verifyTunnel() async -> Bool {
     try? await Task.sleep(for: .milliseconds(700))   // routes settle
+
+    // Degraded mode — no App Group → the engine's stats never appear. The
+    // TUN's fake gateway (198.18.0.1) proves the routes installed, and the
+    // fresh-socket healthCheck then proves the proxy plane carries traffic
+    // (a dead proxy kills that connection INSIDE the TUN — no bypass).
+    if TunnelController.readStats() == nil {
+      for _ in 0..<10 {
+        if TunnelController.tunAddressPresent(), await api.healthCheck() {
+          return true
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+      }
+      return false
+    }
+
     let baseline = TunnelController.readStats()?.bytesUp ?? 0
     for _ in 0..<3 {
       if await api.healthCheck() {
@@ -397,14 +508,14 @@ final class AppModel {
 
   func disconnect() async {
     guard client != nil, sessionKey != nil else {
-      await TunnelController.stop()
+      await TunnelController.userStop()
       connState = .ready
       return
     }
     connState = .disconnecting
     stopSessionLoops()
     await sendBeat(.stop)          // ride the tunnel one last time — direct leg
-    await TunnelController.stop()
+    await TunnelController.userStop()
     sessionKey = nil
     currentConfig = nil
     select = nil   // history stays persisted on disk
@@ -687,7 +798,7 @@ final class AppModel {
   private nonisolated static func physicalInterfaceName(_ path: NWPath) -> String? {
     for interface in path.availableInterfaces {
       switch interface.type {
-      case .wifi, .cellular, .wiredEthernet:
+      case .wifi, .cellular, .wired:
         return interface.name
       default:
         continue
@@ -702,7 +813,7 @@ final class AppModel {
     guard path.status == .satisfied else { return "none" }
     if path.usesInterfaceType(.wifi) { return "wifi" }
     if path.usesInterfaceType(.cellular) { return "cellular" }
-    if path.usesInterfaceType(.wiredEthernet) { return "wired" }
+    if path.usesInterfaceType(.wired) { return "wired" }
     return "other"
   }
 
@@ -813,6 +924,14 @@ final class AppModel {
   func scenePhaseChanged(_ phase: ScenePhase) {
     if phase == .active, sessionKey != nil {
       Task { await sendBeat(.beat) }
+    }
+    // Stable Connect: returning to the app while the session is live but
+    // the tunnel is failing → re-enter the ladder RIGHT NOW (it re-fetches
+    // the sub and re-races) instead of waiting for the 45 s loop.
+    if phase == .active, stableConnect, sessionKey != nil,
+       connState == .connected,
+       let stats = TunnelController.readStats(), stats.state == .failing {
+      Task { await tunnelFailedCurrent() }
     }
   }
 }

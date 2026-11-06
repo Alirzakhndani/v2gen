@@ -244,7 +244,7 @@ struct WhiteCapsuleButtonStyle: ButtonStyle {
         Capsule(style: .continuous)
           .fill(.white)
           .shadow(color: Color(black: 0.02, opacity: 0.55), radius: 14, y: 10)
-          .shadow(color: .white.opacity(0.35), radius: 1)
+          .shadow(.white.opacity(0.35), radius: 1)
       }
       .scaleEffect(configuration.isPressed ? 0.97 : 1)
       .animation(Animation.v2(.v2Tap, reduceMotion: UIAccessibility.isReduceMotionEnabled), value: configuration.isPressed)

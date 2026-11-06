@@ -45,6 +45,29 @@ struct SettingsSheetView: View {
 
         quotaSection(client)
 
+        // ── Connection behavior (Stable Connect / Kill Switch) ──────────
+        Section {
+          Toggle(isOn: Binding(
+            get: { model.stableConnect },
+            set: { model.setStableConnect($0) }
+          )) {
+            Label("Stable Connect", systemImage: "bolt.badge.clock")
+          }
+          .accessibilityHint("Keep the connection alive in the background")
+
+          Toggle(isOn: Binding(
+            get: { model.killSwitch },
+            set: { model.setKillSwitch($0) }
+          )) {
+            Label("Kill Switch", systemImage: "shield.lefthalf.filled")
+          }
+          .accessibilityHint("Block all traffic when the VPN is down")
+        } header: {
+          Text("Connection")
+        } footer: {
+          Text("Stable Connect: the VPN reconnects by itself the moment the network is back, instantly rotates to the next working config if the current one dies, and refreshes your subscription automatically when every config fails — all in the background.\n\nKill Switch: if the VPN cannot protect the traffic, nothing leaves the phone — no site opens outside the tunnel while a connection is failing.")
+        }
+
         Section {
           Button {
             copySub(client)

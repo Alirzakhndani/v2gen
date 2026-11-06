@@ -86,9 +86,7 @@ struct AutoSelectState: Sendable {
   /// younger than maxPersistedAge (15 min); older state is discarded.
   init(restoring saved: Persisted, configs: [ParsedConfig], now: Date = .init()) {
     guard now.timeIntervalSince(saved.updatedAt) < Self.maxPersistedAge else {
-      // Direct assignment (not self.init delegation) — struct inits must not
-      // mix delegation with direct stored-property assignment across paths.
-      members = configs.map { Member(config: $0) }
+      self.init(configs: configs)
       return
     }
     let byTag = Dictionary(saved.members.map { ($0.tag, $0) },
@@ -312,7 +310,7 @@ struct AutoSelectState: Sendable {
     var gateNeedsProbe: Bool
   }
 
-  func persisted(now: Date = .init()) -> Persisted {
+  var persisted(now: Date = .init()) -> Persisted {
     Persisted(
       updatedAt: now,
       members: members.map { m in

@@ -17,7 +17,7 @@ enum IPProtocolNumber: UInt8 {
 struct IPv4Packet {
   var src: [UInt8]        // 4
   var dst: [UInt8]        // 4
-  var protoNum: UInt8
+  var protocol: UInt8
   var payload: [UInt8]    // transport segment
 
   /// Parse a raw IPv4 packet. Returns nil for anything the stack will not
@@ -39,11 +39,11 @@ struct IPv4Packet {
     let dst = Array(raw[16..<20])
     let proto = raw[9]
     let payload = Array(raw[(ihl * 4)..<totalLen])
-    return IPv4Packet(src: src, dst: dst, protoNum: proto, payload: payload)
+    return IPv4Packet(src: src, dst: dst, protocol: proto, payload: payload)
   }
 
   /// Build an IPv4 packet (header checksum computed).
-  static func build(src: [UInt8], dst: [UInt8], protoNum: UInt8, payload: [UInt8]) -> [UInt8] {
+  static func build(src: [UInt8], dst: [UInt8], protocol: UInt8, payload: [UInt8]) -> [UInt8] {
     var out = [UInt8]()
     let totalLen = 20 + payload.count
     out.append(0x45)                       // IPv4, IHL 5
@@ -55,7 +55,7 @@ struct IPv4Packet {
     out.append(0x40)                       // don't fragment
     out.append(0x00)
     out.append(64)                         // TTL
-    out.append(protoNum)
+    out.append(protocol)
     out.append(0x00)                       // checksum (below)
     out.append(0x00)
     out.append(contentsOf: src)

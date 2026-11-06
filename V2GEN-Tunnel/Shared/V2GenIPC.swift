@@ -112,6 +112,39 @@ struct V2GenTunnelCommand: Codable, Equatable {
   /// The panel-accounting tag (config name) — echoed in stats so the app
   /// can show which member of the sub is live.
   var tag: String
+
+  // ── Stable Connect / Kill Switch (all optional: older command files and
+  // providerConfigurations without them decode unchanged) ─────────────────
+  /// Ranked RAW links of the OTHER alive configs (best first, the primary
+  /// `link` excluded). With stableConnect the tunnel walks this list when
+  /// the active config's dials keep failing — real background failover
+  /// without the app having to be alive.
+  var failoverLinks: [String]? = nil
+  /// Tags for `failoverLinks` (same order) so stats always name the live
+  /// member of the sub.
+  var failoverTags: [String]? = nil
+  /// Auto-advance to the next failover link when the active config enters
+  /// the failing state (Stable Connect).
+  var stableConnect: Bool? = nil
+  /// Fail-closed: keep the TUN up and blackhole ALL traffic when no config
+  /// works (or even the link is unparseable) instead of letting the tunnel
+  /// die and traffic leak through the physical interface.
+  var killSwitch: Bool? = nil
+
+  /// JSON for the providerConfiguration transport (survives signers that
+  /// did NOT provision the App Group — the command then rides inside the
+  /// VPN profile itself, and on-demand restarts still find it).
+  var asProviderConfiguration: [String: Any] {
+    let data = (try? JSONEncoder().encode(self)) ?? Data()
+    return ["command": String(data: data, encoding: .utf8) ?? ""]
+  }
+
+  /// Decode from a providerConfiguration dictionary.
+  static func fromProviderConfiguration(_ dict: [String: Any]) -> V2GenTunnelCommand? {
+    guard let json = dict["command"] as? String, let data = json.data(using: .utf8)
+    else { return nil }
+    return try? JSONDecoder().decode(V2GenTunnelCommand.self, from: data)
+  }
 }
 
 // MARK: - Tunnel → App
@@ -196,7 +229,7 @@ enum V2GenDarwin {
 /// One Darwin-notification subscription. `deinit` removes it.
 final class DarwinObservationToken {
   private static let lock = NSLock()
-  nonisolated(unsafe) private static var registry: [UnsafeRawPointer: DarwinObservationToken] = [:]
+  private static var registry: [UnsafeRawPointer: DarwinObservationToken] = [:]
 
   private let name: String
   private let handler: () -> Void
@@ -204,18 +237,18 @@ final class DarwinObservationToken {
   fileprivate init(name: String, handler: @escaping () -> Void) {
     self.name = name
     self.handler = handler
-    DarwinObservationToken.lock.lock()
-    defer { DarwinObservationToken.lock.unlock() }
-    DarwinObservationToken.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = self
+    Self.lock.lock()
+    defer { Self.lock.unlock() }
+    Self.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = self
     CFNotificationCenterAddObserver(
       CFNotificationCenterGetDarwinNotifyCenter(),
       Unmanaged.passUnretained(self).toOpaque(),
       { _, observer, _, _, _ in
         guard let observer else { return }
         let key = UnsafeRawPointer(observer)
-        DarwinObservationToken.lock.lock()
-        let token = DarwinObservationToken.registry[key]
-        DarwinObservationToken.lock.unlock()
+        Self.lock.lock()
+        let token = Self.registry[key]
+        Self.lock.unlock()
         token?.handler()
       },
       name as CFString,
@@ -225,9 +258,9 @@ final class DarwinObservationToken {
   }
 
   deinit {
-    DarwinObservationToken.lock.lock()
-    DarwinObservationToken.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = nil
-    DarwinObservationToken.lock.unlock()
+    Self.lock.lock()
+    Self.registry[UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())] = nil
+    Self.lock.unlock()
     CFNotificationCenterRemoveObserver(
       CFNotificationCenterGetDarwinNotifyCenter(),
       Unmanaged.passUnretained(self).toOpaque(),
