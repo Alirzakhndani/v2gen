@@ -28,8 +28,8 @@ nonisolated enum SigningDiagnostics {
       let start = raw.range(of: Data("<?xml".utf8)),
       let end = raw.range(
         of: Data("</plist>".utf8),
-        in: start.upperBound..<raw.endIndex,
-        options: .backwards
+        options: .backwards,
+        in: start.upperBound..<raw.endIndex
       )
     else { return nil }
     let plistData = raw[start.lowerBound..<end.upperBound]

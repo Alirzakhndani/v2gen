@@ -233,7 +233,7 @@ enum TunnelController {
       return manager
     }
     let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-    if let existing = managers.first({
+    if let existing = managers.first(where: {
       ($0.protocolConfiguration as? NETunnelProviderProtocol)?
         .providerBundleIdentifier == tunnelBundleID
     }) {
