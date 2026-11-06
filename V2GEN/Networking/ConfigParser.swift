@@ -107,7 +107,7 @@ enum ConfigParser {
     }
 
     // ss://base64(method:pass@host:port) — the whole body is encoded.
-    guard let decoded = String(data: Data(base64Decoded: body), as: UTF8.self),
+    guard let decoded = String(validating: Data(base64Decoded: body), as: UTF8.self),
           let at = decoded.range(of: "@", options: .backwards)
     else { return nil }
     let tail = String(decoded[at.upperBound...])

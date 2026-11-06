@@ -137,7 +137,7 @@ struct LinkConfig {
 
   private static func parseVMess(_ link: String) -> LinkConfig? {
     let b64 = String(link.dropFirst("vmess://".count))
-    guard let json = String(data: Data(base64Flexible: b64), as: UTF8.self),
+    guard let json = String(validating: Data(base64Flexible: b64), as: UTF8.self),
           let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
     else { return nil }
 
@@ -209,7 +209,7 @@ struct LinkConfig {
       hostPort = String(body[body.index(after: at)...])
       if !methodPass.contains(":") {
         // ss://base64(method:pass)@host:port
-        guard let dec = String(data: Data(base64Flexible: methodPass), as: UTF8.self) else {
+        guard let dec = String(validating: Data(base64Flexible: methodPass), as: UTF8.self) else {
           return nil
         }
         methodPass = dec
@@ -218,7 +218,7 @@ struct LinkConfig {
       }
     } else {
       // ss://base64(method:pass@host:port)
-      guard let dec = String(data: Data(base64Flexible: body), as: UTF8.self),
+      guard let dec = String(validating: Data(base64Flexible: body), as: UTF8.self),
             let at = dec.lastIndex(of: "@")
       else { return nil }
       methodPass = String(dec[dec.startIndex..<at])
