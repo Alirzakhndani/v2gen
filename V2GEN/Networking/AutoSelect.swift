@@ -310,7 +310,7 @@ struct AutoSelectState: Sendable {
     var gateNeedsProbe: Bool
   }
 
-  var persisted(now: Date = .init()) -> Persisted {
+  func persisted(now: Date = .init()) -> Persisted {
     Persisted(
       updatedAt: now,
       members: members.map { m in
