@@ -1,7 +1,5 @@
 #!/bin/bash
-# Probe which NEPacketTunnelProvider override signatures the current SDK accepts.
-# Prints PROBE <name>: MATCH ✅ or the compiler error — read the job log to learn
-# the exact signature, then fix TunnelProvider.swift accordingly.
+# Probe round 2: find the REAL startTunnel signature in this SDK.
 set +e
 
 try_sig() {
@@ -15,20 +13,26 @@ try_sig() {
   fi
 }
 
-try_sig A 'override func startTunnel(_ options: [String : Any]?, completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
-try_sig B 'override func startTunnel(with options: [String : Any]?, completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
-try_sig C 'override func startTunnel(options: [String : Any]?, completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
-try_sig D 'override func startTunnel(_ options: [String : Any], completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
-try_sig E 'override func startTunnel(options: [String : Any]?) async throws { }'
-try_sig F 'override func startTunnel(_ options: [String : Any]?) async throws { }'
+try_sig G 'override func start(with options: [String : Any]?, completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
+try_sig H 'override func startTunnel(withOptions options: [String : Any]?, completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
+try_sig I 'override func startTunnel(options: [String : Any], completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
+try_sig J 'override func startTunnel(with options: [String : Any], completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
+try_sig K 'override func start(_ options: [String : Any]?, completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
+try_sig L 'override func startTunnel(_ options: NSDictionary?, completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }'
 try_sig S 'override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) { completionHandler() }'
-try_sig T 'override func stopTunnel(_ reason: NEProviderStopReason, completionHandler: @escaping () -> Void) { completionHandler() }'
 
-# Also dump the raw interface text for these methods (ERE grep, no backslash issues).
+# The raw truth: grep the swiftinterface (arm64e!) with ERE.
 SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-IFACE=$(find "$SDK/System/Library/Frameworks/NetworkExtension.framework" -name "arm64-apple-ios.swiftinterface" | head -1)
+IFACE=$(find "$SDK/System/Library/Frameworks/NetworkExtension.framework" -name "*.swiftinterface" | head -1)
 echo "interface: $IFACE"
 if [ -n "$IFACE" ]; then
-  grep -nE "func startTunnel|func stopTunnel" "$IFACE"
+  echo "--- startTunnel / stopTunnel / class decls ---"
+  grep -nE "func startTunnel|func stopTunnel|func start\(|class NEPacketTunnelProvider|class NEProvider" "$IFACE"
+  echo "--- NEPacketTunnelProvider block (first 40 lines) ---"
+  START=$(grep -n "class NEPacketTunnelProvider" "$IFACE" | head -1 | cut -d: -f1)
+  if [ -n "$START" ]; then
+    END=$((START + 40))
+    sed -n "${START},${END}p" "$IFACE"
+  fi
 fi
 exit 0
