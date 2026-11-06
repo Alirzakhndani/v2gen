@@ -1,9 +1,9 @@
 import SwiftUI
 
 // ── V2GEN theme — ink, glass, and measured geometry ───────────────────────
-// The reference design is fixed: the user's dark glacier wallpaper renders
-// byte-for-byte as the backdrop, and the app's ink sits on it as light
-// chrome — the same deliberate exception Apple's own immersive apps
+// The reference design is fixed: the owner's dark abstract wallpaper
+// renders byte-for-byte as the backdrop, and the app's ink sits on it as
+// light chrome — the same deliberate exception Apple's own immersive apps
 // (Camera, Photos full-screen) make: over fixed dark CONTENT, ink stays
 // light regardless of system scheme. Every surface that is NOT wallpaper-
 // immersive (the settings sheet, system controls, alerts) uses semantic

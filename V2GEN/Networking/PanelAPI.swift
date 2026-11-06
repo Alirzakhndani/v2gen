@@ -5,8 +5,11 @@ import UIKit
 // The app talks to the panel over TWO paths, one per phase of the flow:
 //   ENTRY (not connected — the VPS IP is filtered in Iran): login + sub
 //   always go through the anti-filter Cloudflare worker (sub.v2gen.xyz →
-//   panel). The worker learns from the VPS which sub link belongs to this
-//   user; the app races exactly the configs that sub serves (the Lantern
+//   panel) — and each worker request RIDES EVERY FRONT AT ONCE (the DNS
+//   path plus IP-pinned CF edges, see CFDirect): Iranian ISPs block
+//   Cloudflare subnets non-uniformally, so a single-path login dies on
+//   the wrong ISP while a raced one gets through. The worker learns from
+//   the VPS which sub link belongs to this user; the app races exactly the configs that sub serves (the Lantern
 //   mechanism lives in Racer/AutoSelect).
 //   CONNECTED (a config from the sub is up — the VPS is reachable through
 //   it): session logs (volume, remaining days, live heartbeat) go DIRECT
@@ -14,8 +17,8 @@ import UIKit
 //   disconnect the exchange stops; the next connect re-enters via the
 //   worker. Session contract (same endpoint on both legs — direct first,
 //   worker fallback):
-//   POST /api/app/login     { username, password }        → { ok, client }      (worker only)
-//   GET  /api/sub/{token}                                → base64 links + headers (worker only)
+//   POST /api/app/login     { username, password }        → { ok, client }      (worker, raced)
+//   GET  /api/sub/{token}                                → base64 links + headers (worker, raced)
 //   POST /api/app/session   { subToken, action, … }       → { ok, sessionKey }   (direct → worker fallback)
 
 enum PanelError: Error {
@@ -36,6 +39,18 @@ enum SessionPath: String, Sendable {
   /// Straight to the VPS — used for session logs while CONNECTED (the
   /// user's own tunnel makes the host reachable; nothing CF in between).
   case direct
+}
+
+/// A reached-the-worker HTTP response, whichever front delivered it.
+struct PanelResponse: Sendable {
+  let status: Int
+  let body: Data
+  /// Lowercased header map (both transport paths normalize into this).
+  let headers: [String: String]
+
+  func header(_ name: String) -> String? {
+    headers[name.lowercased()]
+  }
 }
 
 struct PanelAPI: Sendable {
@@ -82,7 +97,9 @@ struct PanelAPI: Sendable {
   /// Reach the worker's /healthz on a FRESH connection — the traffic this
   /// generates rides the tunnel when one is up (the engine's byte counter
   /// proves it), making it the end-to-end data-plane check for a candidate
-  /// config: worker entry → CF edge → proxy config → … works.
+  /// config: worker entry → CF edge → proxy config → … works. (Plain
+  /// URLSession only — this probe deliberately tests the CURRENT routing,
+  /// not the anti-block fronts.)
   func healthCheck() async -> Bool {
     var req = URLRequest(url: baseURL.appending(path: "healthz"))
     req.timeoutInterval = 8
@@ -110,11 +127,11 @@ struct PanelAPI: Sendable {
     let body = try JSONSerialization.data(withJSONObject: [
       "username": username, "password": password,
     ])
-    let (data, response) = try await request(
+    let res = try await request(
       "api/app/login", method: "POST", body: body
     )
-    let decoded = (try? JSONDecoder.v2.decode(LoginResponse.self, from: data)) ?? .empty
-    if httpOK(response), decoded.ok == true, let client = decoded.client {
+    let decoded = (try? JSONDecoder.v2.decode(LoginResponse.self, from: res.body)) ?? .empty
+    if (200..<300).contains(res.status), decoded.ok == true, let client = decoded.client {
       return client
     }
     throw PanelError.panel(decoded.error ?? "Login failed")
@@ -123,8 +140,8 @@ struct PanelAPI: Sendable {
   // MARK: - Subscription
 
   func subscription(token: String) async throws -> SubData {
-    let (data, response) = try await request("api/sub/\(token)", method: "GET")
-    let status = httpStatus(response)
+    let res = try await request("api/sub/\(token)", method: "GET")
+    let status = res.status
     guard (200..<300).contains(status) else {
       // 404 = unknown token / subscription inactive — the stored auth is
       // dead; the app drops it and returns to the login form. (The worker
@@ -134,7 +151,8 @@ struct PanelAPI: Sendable {
       throw PanelError.panel("Subscription fetch failed (\(status))")
     }
     // The body is standard base64 of newline-separated v2ray links.
-    let trimmed = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = String(decoding: res.body, as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
     let decodedBody = Self.base64Decode(trimmed)
     let links = decodedBody
       .split(whereSeparator: \.isNewline)
@@ -143,8 +161,7 @@ struct PanelAPI: Sendable {
     let configs = links.compactMap(ConfigParser.parse(link:))
 
     var userinfo = SubUserinfo()
-    if let raw = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "subscription-userinfo"),
-       !raw.isEmpty {
+    if let raw = res.header("subscription-userinfo"), !raw.isEmpty {
       for pair in raw.split(separator: ";") {
         let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
         guard kv.count == 2, let v = Int(kv[1]) else { continue }
@@ -158,7 +175,7 @@ struct PanelAPI: Sendable {
       }
     }
 
-    var title = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "profile-title") ?? ""
+    var title = res.header("profile-title") ?? ""
     if title.hasPrefix("base64:") {
       title = String(Self.base64Decode(String(title.dropFirst(7))))
     }
@@ -198,10 +215,10 @@ struct PanelAPI: Sendable {
     if let bytesUp { payload["bytesUp"] = bytesUp }
     if let bytesDown { payload["bytesDown"] = bytesDown }
     let body = try JSONSerialization.data(withJSONObject: payload)
-    let (data, _) = try await request(
+    let res = try await request(
       "api/app/session", method: "POST", body: body, via: path
     )
-    return (try? JSONDecoder.v2.decode(SessionResponse.self, from: data)) ?? .empty
+    return (try? JSONDecoder.v2.decode(SessionResponse.self, from: res.body)) ?? .empty
   }
 
   // MARK: - Plumbing
@@ -211,26 +228,124 @@ struct PanelAPI: Sendable {
     method: String,
     body: Data? = nil,
     via route: SessionPath = .worker
-  ) async throws -> (Data, URLResponse) {
-    let base = route == .direct ? directBaseURL : baseURL
-    let sender = route == .direct ? directSession : session
-    var req = URLRequest(url: base.appending(path: path))
-    req.httpMethod = method
-    req.httpBody = body
-    if body != nil { req.setValue("application/json", forHTTPHeaderField: "content-type") }
-    do {
-      return try await sender.data(for: req)
-    } catch {
+  ) async throws -> PanelResponse {
+    if route == .direct {
+      return try await urlRequest(
+        directBaseURL.appending(path: path), method: method, body: body,
+        session: directSession
+      )
+    }
+    return try await workerRequest(path, method: method, body: body)
+  }
+
+  // MARK: - Worker-front racing (Iranian anti-block)
+
+  /// The CF edge IP that won the last race rides FIRST on the next
+  /// request — sticky winner, so a working front keeps working.
+  private static var stickyCFIP: String?
+
+  private enum Front: Sendable {
+    case url
+    case cfIP(String)
+  }
+
+  private struct FrontOutcome: Sendable {
+    let front: Front
+    /// nil = this front failed to reach the worker at all (the failure
+    /// reason is irrelevant — what matters is any-front-reached).
+    let response: PanelResponse?
+  }
+
+  /// Fronts for this request: the DNS path always; the sticky CF winner
+  /// and one rotating pool IP race alongside.
+  private func pickFronts() -> [Front] {
+    var fronts: [Front] = [.url]
+    var candidates = CFDirect.pool
+    if let sticky = PanelAPI.stickyCFIP {
+      fronts.append(.cfIP(sticky))
+      candidates.removeAll { $0 == sticky }
+    }
+    if let rotating = candidates.randomElement() {
+      fronts.append(.cfIP(rotating))
+    }
+    return fronts
+  }
+
+  /// ENTRY-phase requests (login / sub / worker-fallback session logs)
+  /// ride EVERY front at once — the DNS path plus IP-pinned Cloudflare
+  /// edges that need no DNS at all. The first HTTP response wins (any
+  /// status proves the front reaches the worker); every front failing is
+  /// the only failure. Iranian ISPs block CF subnets non-uniformally —
+  /// see CFDirect.
+  private func workerRequest(
+    _ path: String, method: String, body: Data?
+  ) async throws -> PanelResponse {
+    let fronts = pickFronts()
+    let host = baseURL.host() ?? "sub.v2gen.xyz"
+    return try await withThrowingTaskGroup(of: FrontOutcome.self) { group in
+      for front in fronts {
+        group.addTask {
+          let res: PanelResponse?
+          do {
+            switch front {
+            case .url:
+              res = try await self.urlRequest(
+                self.baseURL.appending(path: path), method: method,
+                body: body, session: self.session
+              )
+            case .cfIP(let ip):
+              let raw = try await CFDirect.request(
+                ip: ip, host: host, path: path, method: method, body: body
+              )
+              res = PanelResponse(
+                status: raw.status, body: raw.body, headers: raw.headers
+              )
+            }
+          } catch {
+            res = nil
+          }
+          return FrontOutcome(front: front, response: res)
+        }
+      }
+      // Children NEVER throw (a failure rides as a nil response) — the
+      // loop below only needs the first success.
+      for try await outcome in group {
+        if let res = outcome.response {
+          if case .cfIP(let ip) = outcome.front {
+            PanelAPI.stickyCFIP = ip
+          }
+          group.cancelAll()
+          return res
+        }
+      }
       throw PanelError.network
     }
   }
 
-  private func httpStatus(_ r: URLResponse) -> Int {
-    (r as? HTTPURLResponse)?.statusCode ?? -1
-  }
-
-  private func httpOK(_ r: URLResponse) -> Bool {
-    (200..<300).contains(httpStatus(r))
+  /// Plain URLSession transport — used directly by the direct (VPS)
+  /// route and as the DNS front of the worker race.
+  private func urlRequest(
+    _ url: URL, method: String, body: Data?, session: URLSession
+  ) async throws -> PanelResponse {
+    var req = URLRequest(url: url)
+    req.httpMethod = method
+    req.httpBody = body
+    if body != nil { req.setValue("application/json", forHTTPHeaderField: "content-type") }
+    do {
+      let (data, response) = try await session.data(for: req)
+      let http = response as? HTTPURLResponse
+      var headers: [String: String] = [:]
+      for (k, v) in http?.allHeaderFields ?? [:] {
+        if let ks = k as? String, let vs = v as? String {
+          headers[ks.lowercased()] = vs
+        }
+      }
+      return PanelResponse(
+        status: http?.statusCode ?? -1, body: data, headers: headers
+      )
+    } catch {
+      throw PanelError.network
+    }
   }
 
   /// URL-safe base64 with padding fix.

@@ -247,7 +247,10 @@ final class AppModel {
     } catch let PanelError.panel(message) {
       return message
     } catch {
-      return "Network error — check your connection"
+      // The raced fronts all failed to reach the worker — usually the
+      // ISP is blocking every Cloudflare route at once (rare: the race
+      // covers DNS + several edge IPs). Actionable Persian.
+      return "اتصال به سرور برقرار نشد — اینترنت را عوض کنید (Wi-Fi ⇄ دیتا) و دوباره امتحان کنید"
     }
   }
 
@@ -318,7 +321,9 @@ final class AppModel {
       }
     } catch {
       if !silent {
-        errorNote = "Could not load configs"
+        // All raced fronts failed (DNS + CF edge IPs) — the ISP is
+        // blocking every Cloudflare route at once. Actionable Persian.
+        errorNote = "کانفیگ‌ها دریافت نشد — اینترنت را عوض کنید (Wi-Fi ⇄ دیتا) و دوباره امتحان کنید"
         connState = .error
       }
     }
