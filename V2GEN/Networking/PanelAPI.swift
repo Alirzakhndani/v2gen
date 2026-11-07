@@ -298,11 +298,12 @@ struct PanelAPI: Sendable {
   /// ENTRY-phase requests (login / sub / worker-fallback session logs)
   /// ride EVERY front at once — the DNS path plus IP-pinned Cloudflare
   /// edges (443 + an alternate port) that need no DNS at all. The first
-  /// HTTP response wins (any status proves the front reaches the worker);
-  /// every front failing is the only failure — and then the per-front
-  /// report rides the error so a screenshot tells support exactly what
-  /// the ISP is blocking. Iranian ISPs block CF subnets non-uniformally —
-  /// see CFDirect.
+  /// WORKER answer wins (verified JSON/base64 — see looksLikeWorker; a
+  /// hijack/portal/error HTML page only rides as a last-resort fallback
+  /// and never becomes the sticky front); every front failing is the
+  /// only failure — and then the per-front report rides the error so a
+  /// screenshot tells support exactly what the ISP is blocking. Iranian
+  /// ISPs block CF subnets non-uniformally — see CFDirect.
   private func workerRequest(
     _ path: String, method: String, body: Data?
   ) async throws -> PanelResponse {
