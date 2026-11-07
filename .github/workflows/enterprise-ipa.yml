@@ -1,0 +1,67 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# V2GEN — ENTERPRISE cloud build: a fully-signed IPA (no side-loader needed).
+#
+# Signs with the In-House certificate pair stored in repo secrets:
+#   ENT_P12_B64             base64 of the .p12 (iPhone Distribution)
+#   ENT_P12_PASS            the .p12 password
+#   ENT_APP_PROFILE_B64     base64 app .mobileprovision   (packet-tunnel ✅)
+#   ENT_TUNNEL_PROFILE_B64  base64 tunnel .mobileprovision (packet-tunnel ✅)
+#
+# The result installs directly on any device — the "Add VPN Configuration"
+# popup WILL appear because the signing carries the network-extension
+# entitlement (the thing free Apple IDs are denied by Apple).
+# Requires iOS 26 SDK ⇒ macOS 26 runner image with Xcode 26.
+# ═══════════════════════════════════════════════════════════════════════════
+name: Build V2GEN Enterprise IPA
+
+on:
+  workflow_dispatch: {}          # manual "Run workflow" button (Actions tab)
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest Xcode (needs 26 for iOS 26 SDK)
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Decode signing material from secrets
+        env:
+          ENT_P12_B64: ${{ secrets.ENT_P12_B64 }}
+          ENT_APP_PROFILE_B64: ${{ secrets.ENT_APP_PROFILE_B64 }}
+          ENT_TUNNEL_PROFILE_B64: ${{ secrets.ENT_TUNNEL_PROFILE_B64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          pairs = [
+            ("ENT_P12_B64", "ent.p12"),
+            ("ENT_APP_PROFILE_B64", "app.mobileprovision"),
+            ("ENT_TUNNEL_PROFILE_B64", "tunnel.mobileprovision"),
+          ]
+          for env, path in pairs:
+            raw = os.environ[env]
+            open(path, "wb").write(base64.b64decode(raw))
+            print(f"{path}: {len(raw)} b64 chars")
+          PY
+
+      - name: Build + sign enterprise IPA
+        env:
+          ENT_P12: ${{ github.workspace }}/ent.p12
+          ENT_P12_PASS: ${{ secrets.ENT_P12_PASS }}
+          ENT_APP_PROFILE: ${{ github.workspace }}/app.mobileprovision
+          ENT_TUNNEL_PROFILE: ${{ github.workspace }}/tunnel.mobileprovision
+        run: bash build-enterprise.sh
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: V2GEN-Enterprise-ipa
+          path: build/V2GEN-Enterprise.ipa
+          if-no-files-found: error
+          retention-days: 30

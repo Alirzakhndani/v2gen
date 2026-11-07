@@ -91,12 +91,28 @@ enum TunnelController {
     }
   }
 
-  /// Must match PRODUCT_BUNDLE_IDENTIFIER of the V2GEN-Tunnel target.
-  /// Derived from the (possibly re-signed) main bundle id so free-signing
-  /// tools (Sideloadly/AltStore/Xcode personal teams) that rename bundles
-  /// keep the app→extension reference intact.
+  /// Must match the bundle id of the tunnel .appex embedded in THIS install.
+  ///
+  /// The appex itself is the only ground truth: enterprise pairs and
+  /// signing services rename BOTH bundles to their profiles' exact app ids
+  /// (e.g. app `com.ctq.qmc.yiban.produc` + tunnel
+  /// `com.ctq.qmc.yiban.product`) — for those, the historical
+  /// `bundleId + ".tunnel"` derivation points at a bundle that does not
+  /// exist and every connect would die on "no protocol found". The PlugIns
+  /// scan wins whenever an .appex is embedded; the derivation stays as the
+  /// fallback for source builds and free side-loaders (which keep the
+  /// `xyz.v2gen.app(.tunnel)` convention).
   static var tunnelBundleID: String {
-    (Bundle.main.bundleIdentifier ?? "xyz.v2gen.app") + ".tunnel"
+    if let plugins = Bundle.main.builtInPlugInsURL,
+       let contents = try? FileManager.default.contentsOfDirectory(
+         at: plugins, includingPropertiesForKeys: nil
+       ),
+       let appex = contents.first(where: { $0.pathExtension == "appex" }),
+       let embedded = Bundle(url: appex)?.bundleIdentifier,
+       !embedded.isEmpty {
+      return embedded
+    }
+    return (Bundle.main.bundleIdentifier ?? "xyz.v2gen.app") + ".tunnel"
   }
 
   private static var manager: NETunnelProviderManager?
