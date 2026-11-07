@@ -156,5 +156,6 @@ SIZE=$(du -h build/V2GEN-Enterprise.ipa | cut -f1)
 echo ""
 echo "✅ build/V2GEN-Enterprise.ipa  ($SIZE)"
 echo ""
-echo "Install: open the IPA on the device (AltStore/Sideloadly/Apple Configurator"
-echo "install it AS-IS — it is already signed; do NOT re-sign it again)."
+echo "Install: 3uTools (Windows) / iMazing / Apple Configurator (Mac) install"
+echo "it AS-IS. NEVER let AltStore/Sideloadly/ESign touch it — they RE-SIGN"
+echo "and destroy the enterprise signature (and the VPN entitlement with it)."
