@@ -46,7 +46,14 @@ cd ios
 ./build-ipa.sh        # → build/V2GEN.ipa   (needs xcodegen + Xcode 26)
 ```
 
-Free install on a personal iPhone (Apple ID, 7-day renewal): **INSTALL-fa.md**.
+Install on a personal iPhone — see **INSTALL-fa.md** (Persian). Honest
+summary: the VPN tunnel requires a signing identity whose provisioning
+profile carries the `network-extension` entitlement (paid developer
+account, or a certificate that includes VPN). A **free** Apple ID never
+gets that entitlement from Apple, so on a free-signed install the app
+runs (login, configs) but the VPN profile can never be created — from
+v1.4.2 the app detects this and says so in Persian instead of failing
+silently.
 
 Signing: the project builds unsigned (`CODE_SIGNING_ALLOWED = NO`) so the
 free side-load flow works — sign at export with a free/development

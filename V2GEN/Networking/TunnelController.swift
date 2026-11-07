@@ -22,9 +22,15 @@ enum TunnelController {
     /// NEVPN 5 with the permission popup shown and dismissed without Allow
     /// (Don't Allow / passcode canceled) — iOS then caches the denial.
     case popupDenied
-    /// The install carries no network-extension entitlement (side-loader
-    /// stripped it) — the popup can NEVER appear; reinstall with it kept.
+    /// The install carries no network-extension entitlement (a paid
+    /// team's re-sign stripped it) — the popup can NEVER appear; reinstall
+    /// with the entitlement kept.
     case notEntitled
+    /// The install is signed by a FREE Apple ID — Apple never grants the
+    /// network-extension entitlement to personal teams, so the VPN profile
+    /// can NEVER be saved on this install. Only a different signing fixes
+    /// it (paid team / a certificate that carries the entitlement).
+    case freeAccountNoVPN
 
     var description: String {
       switch self {
@@ -38,7 +44,18 @@ enum TunnelController {
         return "VPN permission popup was denied"
       case .notEntitled:
         return "App is signed without the network-extension entitlement"
+      case .freeAccountNoVPN:
+        return "App is signed with a free Apple ID — VPN can never be granted"
       }
+    }
+
+    /// Can retry/reset actually change the outcome? A free-Apple-ID install
+    /// can NEVER be fixed from inside the app (Apple does not grant the
+    /// entitlement) — the recovery buttons are hidden for it so the user
+    /// is not sent into a futile retry loop.
+    var fixableByRetry: Bool {
+      if case .freeAccountNoVPN = self { return false }
+      return true
     }
 
     /// Honest, actionable Persian for the UI (each failure mode gets its
@@ -61,9 +78,15 @@ enum TunnelController {
           + "این بار پاپ‌آپ «Add VPN Configuration» را Allow و رمز گوشی را بزنید. "
           + "اگر پاپ‌آپ دوباره نیامد: «بازنشانی پروفایل» را بزنید و در صورت نیاز موقتاً پاس‌کد گوشی را خاموش کنید"
       case .notEntitled:
-        return "این نصب اپ، دسترسی VPN ندارد (بدون entitlement امضا شده) — اپ را کامل پاک کنید؛ "
+        return "این نصب اپ، دسترسی VPN ندارد (هنگام امضا حذف شده) — اپ را کامل پاک کنید؛ "
           + "در Sideloadly بخش Advanced گزینه‌های «Keep entitlements» و «App Groups» را روشن کنید "
           + "و دوباره نصب کنید؛ هنگام اولین باز شدن اپ، پاپ‌آپ Allow را حتماً تأیید کنید"
+      case .freeAccountNoVPN:
+        return "این نصب با Apple ID رایگان امضا شده — اپل به اکانت رایگان هرگز اجازهٔ ساخت VPN "
+          + "نمی‌دهد؛ پس پروفایل VPN روی این نصب ساخته نمی‌شود و مشکل از اپ هم نیست. "
+          + "راه‌حل: با «اکانت توسعه‌دهندهٔ پولی Apple» (۹۹ دلار در سال، تا ۱۰۰ دستگاه) "
+          + "یا «سرتیفیکیت امضاییِ دارای دسترسی VPN» دوباره نصب کنید — "
+          + "آن‌وقت پاپ‌آپ «Add VPN Configuration» می‌آید و همه‌چیز کار می‌کند"
       }
     }
   }
@@ -274,7 +297,10 @@ enum TunnelController {
   }
 
   /// saveToPreferences with honest failure classification (NEVPN code 5):
-  ///   · entitlement missing from the embedded provisioning profile → the
+  ///   · FREE personal team (profile TTL ≤ 14 days) → Apple never grants
+  ///     the network-extension entitlement to free accounts — a reinstall
+  ///     can NEVER fix it; only a different signing can. Say exactly that.
+  ///   · entitlement missing from a paid team's embedded profile → the
   ///     popup can never come — a reinstall is the ONLY fix (Sideloadly:
   ///     Keep entitlements + App Groups).
   ///   · otherwise the popup WAS shown (or a previous denial is cached) →
@@ -298,6 +324,13 @@ enum TunnelController {
       }
       switch SigningDiagnostics.networkExtensionGranted {
       case .some(false):
+        // Free personal team (profile TTL ≤ 14 days)? Apple NEVER grants
+        // the network-extension entitlement to free accounts and no
+        // Sideloadly option changes that — the honest verdict names the
+        // real cure instead of a futile reinstall loop.
+        if SigningDiagnostics.isFreePersonalTeam == true {
+          throw TunnelError.freeAccountNoVPN
+        }
         throw TunnelError.notEntitled
       case .some(true):
         // Entitlement IS in the profile → the popup was shown and answered

@@ -337,20 +337,44 @@ struct PanelAPI: Sendable {
         }
       }
       // Children NEVER throw (a failure rides as a nil response) — the
-      // loop below only needs the first success.
+      // loop below only accepts the first WORKER answer.
+      var fallback: PanelResponse?
       var report: [String] = []
       for try await outcome in group {
-        if let res = outcome.response {
+        guard let res = outcome.response else {
+          report.append("\(outcome.front.label):\(outcome.failure ?? "✗")")
+          continue
+        }
+        // Only a WORKER answer may win the race. Captive portals, ISP
+        // hijack pages and Cloudflare error/block pages answer HTTP too,
+        // but as HTML — the worker always answers JSON or plain base64
+        // text (verified live against every endpoint). A non-worker
+        // answer rides as a last-resort fallback while the remaining
+        // fronts keep racing; it also never becomes the sticky front.
+        if Self.looksLikeWorker(res) {
           if case .cfIP(let ip, let port) = outcome.front {
             PanelAPI.stickyFront = (ip, port)
           }
           group.cancelAll()
           return res
         }
-        report.append("\(outcome.front.label):\(outcome.failure ?? "✗")")
+        if fallback == nil { fallback = res }
       }
+      if let fallback { return fallback }
       throw PanelError.networkReport(report.joined(separator: " · "))
     }
+  }
+
+  /// Is this HTTP answer the worker's — not a hijack/portal/error page?
+  /// The worker answers `application/json` (API endpoints) or
+  /// `text/plain` base64 (the sub) and NEVER HTML; portals and CF block
+  /// pages are HTML documents.
+  private static func looksLikeWorker(_ res: PanelResponse) -> Bool {
+    let contentType = (res.header("content-type") ?? "").lowercased()
+    if contentType.contains("text/html") { return false }
+    let head = String(decoding: res.body.prefix(64), as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return !head.hasPrefix("<")
   }
 
   /// One compact word per failure class — the report must stay readable

@@ -189,6 +189,11 @@ final class AppModel {
   /// prepare, false while a note is up).
   private(set) var profileOK = false
 
+  /// Can the CURRENT profile note be fixed with retry/reset? False for the
+  /// free-Apple-ID verdict (a different signing is the only cure — the
+  /// recovery buttons are hidden instead of looping the user).
+  private(set) var profileFixable = true
+
   /// Shared profile-task runner: one at a time; success clears the note
   /// and flags health, failure publishes the honest Persian message (raw
   /// iOS reason clipped along — the ONLY way to tell a denied popup from
@@ -200,15 +205,18 @@ final class AppModel {
     do {
       try await work()
       profileOK = true
+      profileFixable = true
       profileNote = nil
       await TunnelController.applyOnDemandRules(
         stableConnect: stableConnect, killSwitch: killSwitch
       )
     } catch let error as TunnelController.TunnelError {
       profileOK = false
+      profileFixable = error.fixableByRetry
       profileNote = error.userMessage
     } catch {
       profileOK = false
+      profileFixable = true
       profileNote = TunnelController.TunnelError
         .profileSaveFailed(String(describing: error)).userMessage
     }

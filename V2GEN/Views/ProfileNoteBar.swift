@@ -30,15 +30,21 @@ struct ProfileNoteBar: View {
             .foregroundStyle(Ink.error)
             .multilineTextAlignment(.center)
             .v2InkShadow()
-          HStack(spacing: 14) {
-            action(
-              "تلاش دوباره", icon: "arrow.clockwise",
-              run: { Task { await model.retryProfile() } }
-            )
-            action(
-              "بازنشانی پروفایل", icon: "arrow.triangle.2.circlepath",
-              run: { Task { await model.resetProfile() } }
-            )
+          // Retry/reset only when they can actually change the outcome —
+          // the free-Apple-ID verdict is a signing problem; a different
+          // install is the only cure, so the buttons are hidden instead
+          // of sending the user into a futile loop.
+          if model.profileFixable {
+            HStack(spacing: 14) {
+              action(
+                "تلاش دوباره", icon: "arrow.clockwise",
+                run: { Task { await model.retryProfile() } }
+              )
+              action(
+                "بازنشانی پروفایل", icon: "arrow.triangle.2.circlepath",
+                run: { Task { await model.resetProfile() } }
+              )
+            }
           }
         }
         .padding(.horizontal, 30)
